@@ -1,0 +1,27 @@
+{
+  "name": "jquery_no_vnc",
+  "authors": [
+    "Jody Salt <jody.salt@stfc.ac.uk>"
+  ],
+  "description": "Wraps the noVNC client in a jQuery plugin.",
+  "main": "",
+  "keywords": [
+    "noVnc",
+    "no",
+    "vnc",
+    "jQuery"
+  ],
+  "license": "MIT",
+  "homepage": "",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "devDependencies": {
+    "no-vnc": "^0.5.1",
+    "jquery": "^3.0.0"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "jquery_no_vnc",
+  "version": "0.1.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "express": "^4.13.4",
+    "gulp": "^3.9.1",
+    "gulp-live-server": "0.0.30"
+  }
+}

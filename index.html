@@ -1,0 +1,41 @@
+<!doctype html>
+<html ng-app="reanaApp">
+	<head>
+		<meta charset="utf-8">
+		<title></title>
+		<meta name="description" content="">
+		<meta name="viewport" content="width=device-width">
+
+		<script src="bower_components/jquery/dist/jquery.js"></script>
+		<script src="jquery_no_vnc.js"></script>
+
+	</head>
+	<body>
+
+		<span>Host:</span>
+		<input type="text" name="host">
+		<span>Port:</span>
+		<input type="text" name="port">
+		<span>Password:</span>
+		<input type="password" name="password">
+		<span>Path:</span>
+		<input type="text" name="path">
+		<button>Connect</button><br>
+
+		<canvas id="the_canvas"></canvas>
+
+		<script>
+
+			$('button').on('click', function(){
+				var host = $('input[name=host]').val();
+				var port = $('input[name=port]').val();
+				var password = $('input[name=password]').val();
+				var path = $('input[name=path]').val();
+
+				$('#the_canvas').noVnc(host, port, password, path);
+			});
+
+		</script>
+
+	</body>
+</html>
