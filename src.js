@@ -61,6 +61,7 @@
 				if(fbu.encodingName == 'DesktopSize'){
 					desktopWidth = fbu.width;
 					desktopHeight = fbu.height;
+
 					rescale();
 				}
 			}
@@ -80,8 +81,6 @@
 			};
 
 			rfb.connect(host, port, password, path);
-
-			
 
 		}
 
