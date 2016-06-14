@@ -1,6 +1,6 @@
 var gulp = require('gulp');
 
-gulp.task('serve', ['watch'], function(){
+gulp.task('serve', ['build', 'watch'], function(){
   var gls = require('gulp-live-server');
   var server = gls(['app.js']);
   gulp.watch(['jquery_no_vnc.js'], function (file) {
@@ -28,7 +28,7 @@ gulp.task('build', function(){
         "jsunzip.js",
         "rfb.js", 
         "keysym.js"
-    ]
+    ];
 
     var buffer = [];
     var fs = require('fs');

@@ -5,9 +5,10 @@
 	//no_vnc_scripts
 
 	(function(){
-		$.fn.noVnc = function(host, port, password, path){
-			rfb = new RFB({
-				'target': $(this)[0],
+
+		function NoVnc(canvas, host, port, password, path){
+			var rfb = new RFB({
+				'target': canvas,
 				'encrypt': WebUtil.getQueryVar('encrypt', (window.location.protocol === "https:")),
 				'repeaterID': WebUtil.getQueryVar('repeaterID', ''),
 				'true_color': WebUtil.getQueryVar('true_color', true),
@@ -17,6 +18,16 @@
 			});
 
 			rfb.connect(host, port, password, path);
+
+
+
+		}
+
+		$.fn.noVnc = function(host, port, password, path){
+			if(host !== undefined){
+				$(this)[0]._noVnc = new NoVnc($(this)[0], host, port, password, path);
+			} 
+			return $(this)[0]._noVnc;
 		};
 	})();
 
