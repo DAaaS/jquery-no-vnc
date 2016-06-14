@@ -42,7 +42,7 @@ gulp.task('build', function(){
 			});
 		} else {
 			fs.readFile('src.js', 'UTF8', function (err,data) {
-				fs.writeFile("jquery_no_vnc.js", data.replace(/\/\/no_vnc_scripts/, buffer.join("\n"))); 
+				fs.writeFile("jquery-no-vnc.js", data.replace(/\/\/no_vnc_scripts/, buffer.join("\n"))); 
 			});
 		}
     }
