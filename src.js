@@ -19,8 +19,8 @@
 				'onUpdateState': onUpdateState
 			});
 
-			var originalWidth;
-			var originalHeight;
+			var resolutionWidth;
+			var resolutionHeight;
 
 			var isLoaded = 0;
 			var afterLoadedList = [];
@@ -37,8 +37,8 @@
 				console.log('state', state);
 				if(state == 'normal'){
 					isLoaded = true;
-					originalWidth = $(canvas).width();
-					originalHeight = $(canvas).height();
+					resolutionWidth = $(canvas).width();
+					resolutionHeight = $(canvas).height();
 
 					while(afterLoadedList.length > 0){
 						afterLoadedList.shift()();
@@ -49,15 +49,21 @@
 
 			rfb.connect(host, port, password, path);
 
+			$(canvas).click(function(e){
+				e.preventDefault();
+			});
+
 			this.resize = function(width, height){
 				afterLoaded(function(){
-					var widthScale = width / originalWidth;
-					var heightScale = height / originalHeight;
+					var widthScale = width / resolutionWidth;
+					var heightScale = height / resolutionHeight;
 
 					var scale = widthScale < heightScale ? widthScale : heightScale;
+					if(scale > 1) scale = 1;
+					if(scale < 0.1) scale = 0.1;
 
-					var newWidth = originalWidth * scale;
-					var newHeight = originalHeight * scale;
+					var newWidth = resolutionWidth * scale;
+					var newHeight = resolutionHeight * scale;
 					
 					$(canvas).width(newWidth).height(newHeight);
 					rfb.get_mouse().set_scale(scale);
