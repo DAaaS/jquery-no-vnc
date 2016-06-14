@@ -8,6 +8,10 @@
 
 		function NoVnc(canvas, host, port, password, path){
 
+			$(canvas).on('contextmenu', function(e){
+				e.preventDefault();
+			});
+
 			var rfb = new RFB({
 				'target': canvas,
 				'encrypt': WebUtil.getQueryVar('encrypt', (window.location.protocol === "https:")),
