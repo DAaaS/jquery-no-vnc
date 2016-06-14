@@ -23,6 +23,7 @@
 				'onFBUComplete': onFBUComplete
 			});
 
+			var scale;
 			var desktopWidth;
 			var desktopHeight;
 
