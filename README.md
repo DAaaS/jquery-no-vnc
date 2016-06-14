@@ -37,7 +37,7 @@ Alter tokens/example and change the server to one that exists on your network.
 
 Then go to:
 
-http://localhost:3000/
+	* [http://localhost:3000/](http://localhost:3000/)
 
 You can the alter plugin by editing src.js
 
