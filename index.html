@@ -20,20 +20,26 @@
 		<input type="password" name="password">
 		<span>Path:</span>
 		<input type="text" name="path" value="/websockify?token=0103f9c77e64bcf8819ad13075f3bf01ad479c9e">
-		<button>Connect</button><br>
+		<button name="connect">Connect</button><button name="resize">Resize</button><br>
 
 		<canvas id="the_canvas"></canvas>
 
 		<script>
 
-			$('button').on('click', function(){
+			$('button[name=connect]').on('click', function(){
 				var host = $('input[name=host]').val();
 				var port = $('input[name=port]').val();
 				var password = $('input[name=password]').val();
 				var path = $('input[name=path]').val();
 
-				$('#the_canvas').noVnc(host, port, password, path);
+				$('#the_canvas').noVnc(host, port, password, path).resize(300,200);
 			});
+
+			$('button[name=resize]').on('click', function(){
+				$('#the_canvas').noVnc().resize(1024,800);
+			});
+
+
 
 		</script>
 
