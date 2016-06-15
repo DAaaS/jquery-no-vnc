@@ -11,7 +11,7 @@
     "vnc",
     "jQuery"
   ],
-  "license": "MIT",
+  "license": "MPL",
   "homepage": "",
   "ignore": [
     "**/.*",

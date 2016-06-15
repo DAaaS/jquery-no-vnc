@@ -77,3 +77,12 @@ Then go to [http://localhost:3000](http://localhost:3000).
 
 You can the alter plugin by editing src.js
 
+
+## License
+
+This software licensed under Mozilla Public License, version 2.0
+
+Most of this library is based noVNC by Joel Martin <github@martintribe.org>
+
+For additional license information please read https://github.com/kanaka/noVNC/blob/master/LICENSE.txt
+
