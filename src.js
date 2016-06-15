@@ -6,28 +6,24 @@
 
 	(function(){
 
-		function NoVnc(canvas, host, port, password, path){
-
+		function NoVnc(canvas){
+			
 			$(canvas).on('contextmenu', function(e){
 				e.preventDefault();
 			});
 
-			var rfb = new RFB({
-				'target': canvas,
-				'encrypt': window.location.protocol === "https:",
-				'true_color': true,
-				'local_cursor': true,
-				'shared': true,
-				'view_only': false,
-				'onUpdateState': onUpdateState,
-				'onFBUComplete': onFBUComplete
+			$(canvas).click(function(){
+				$(this).focus();
 			});
 
-			var scale;
+			$(canvas).attr('tabindex', '');
+
+			var rfb;
+			var scale = 1;
 			var desktopWidth;
 			var desktopHeight;
+			var isLoaded = false;
 
-			var isLoaded = 0;
 			var afterLoadedList = [];
 			function afterLoaded(fn){
 				if(!isLoaded){
@@ -38,7 +34,7 @@
 			}
 
 			function onUpdateState(rfb, state, oldstate, statusMsg){
-				if(state == 'normal'){
+				if(state == 'normal' & !isLoaded){
 					isLoaded = true;
 
 					desktopWidth = rfb.get_display().get_width();
@@ -47,6 +43,22 @@
 					while(afterLoadedList.length > 0){
 						afterLoadedList.shift()();
 					}
+
+					$(canvas).trigger("novnc:loaded");
+				}
+
+				if(state == 'connect'){
+					$(canvas).trigger("novnc:connected");
+				}
+
+				if(state == 'disconnect'){
+					reset();
+					$(canvas).trigger("novnc:disconnected");
+				}
+
+				if(state == 'password'){
+					console.log('password');
+					$(canvas).trigger("novnc:passwordrequired");
 				}
 			}
 
@@ -66,30 +78,80 @@
 				}
 			}
 
-			this.resize = function(width, height){
-				afterLoaded(function(){
-					var widthScale = width / desktopWidth;
-					var heightScale = height / desktopHeight;
 
-					scale = widthScale < heightScale ? widthScale : heightScale;
+			function reset(){
+				rfb = undefined;
+				afterLoadedList = [];
+				isLoaded = false;
+			}
 
-					if(scale > 1) scale = 1;
-					if(scale < 0.1) scale = 0.1;
-
-					rescale();
-				});
+			this.connect = function(host, port, password, path){
+				if(!rfb){
+					rfb = new RFB({
+						'target': canvas,
+						'encrypt': window.location.protocol === "https:",
+						'true_color': true,
+						'local_cursor': true,
+						'shared': true,
+						'view_only': false,
+						'focusContainer': canvas,
+						'onUpdateState': onUpdateState,
+						'onFBUComplete': onFBUComplete
+					});
+					rfb.connect(host, port, password, path);
+				}
+				return this;
 			};
 
-			rfb.connect(host, port, password, path);
+			this.disconnect = function(){
+				if(rfb){
+					rfb.disconnect();
+					reset();
+				}
+				return this;
+			};
+
+			this.resize = function(width, height){
+				if(rfb){
+					afterLoaded(function(){
+						var widthScale = width / desktopWidth;
+						var heightScale = height / desktopHeight;
+
+						scale = widthScale < heightScale ? widthScale : heightScale;
+
+						if(scale > 1) scale = 1;
+						if(scale < 0.1) scale = 0.1;
+
+						rescale();
+						$(canvas).trigger("novnc:resize");
+					});
+				}
+				return this;
+			};
+
+			this.sendPassword = function(password){
+				if(rfb){
+					rfb.sendPassword(password);
+				}
+				return this;
+			};
+
+			this.sendKey = function(code, down){
+				if(rfb){
+					rfb.sendKey(code, down);
+				}
+				return this;
+			};
 
 		}
 
-		$.fn.noVnc = function(host, port, password, path){
-			if(host !== undefined){
-				$(this)[0]._noVnc = new NoVnc($(this)[0], host, port, password, path);
+		$.fn.noVnc = function(){
+			if(!$(this)[0]._noVnc){
+				$(this)[0]._noVnc = new NoVnc($(this)[0]);
 			} 
 			return $(this)[0]._noVnc;
 		};
+
 	})();
 
 })(jQuery);
