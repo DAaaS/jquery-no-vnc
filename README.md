@@ -2,15 +2,15 @@
 
 Wraps the noVNC client in a jQuery plugin.
 
-## Build
+## Install
+
+Via bower:
 
 ```bash
-bower install
-npm install
-gulp
+bower install jquery-no-vnc --save-dev
 ```
 
-This will create a file called jquery-no-vnc.js
+or you can simply copy the files in dist/
 
 ## Use
 
@@ -58,7 +58,17 @@ $('#canvas_id').on('novnc:disconnected', function(){
 
 ```
 
+## Build
+
+```bash
+bower install
+npm install
+gulp
+```
+
 ## Develop
+
+This will build the files dist/jquery-no-vnc.js dist/jquery-no-vnc.min.js
 
 ```bash
 bower install
