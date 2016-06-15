@@ -3,7 +3,7 @@ var gulp = require('gulp');
 gulp.task('serve', ['build', 'watch'], function(){
   var gls = require('gulp-live-server');
   var server = gls(['app.js']);
-  gulp.watch(['jquery_no_vnc.js'], function (file) {
+  gulp.watch(['dist/jquery-no-vnc.js'], function (file) {
     server.start.bind(server)();
     server.notify.bind(server)(file);
   });
@@ -42,7 +42,12 @@ gulp.task('build', function(){
 			});
 		} else {
 			fs.readFile('src.js', 'UTF8', function (err,data) {
-				fs.writeFile("jquery-no-vnc.js", data.replace(/\/\/no_vnc_scripts/, buffer.join("\n"))); 
+				fs.writeFile("dist/jquery-no-vnc.js", data.replace(/\/\/no_vnc_scripts/, buffer.join("\n"))); 
+
+        var uglify = require('gulp-uglify');
+        var rename = require('gulp-rename');
+
+        gulp.src('dist/jquery-no-vnc.js').pipe(uglify({mangle: true})).pipe(rename('jquery-no-vnc.min.js')).pipe(gulp.dest('dist/'));
 			});
 		}
     }

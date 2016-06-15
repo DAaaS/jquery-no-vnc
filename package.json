@@ -11,6 +11,8 @@
   "devDependencies": {
     "express": "^4.13.4",
     "gulp": "^3.9.1",
-    "gulp-live-server": "0.0.30"
+    "gulp-live-server": "0.0.30",
+    "gulp-rename": "^1.2.2",
+    "gulp-uglify": "^1.5.3"
   }
 }
