@@ -38,20 +38,20 @@ noVnc.sendKey(code, down)
 noVnc.disconnect
 
 
-$(canvas).trigger('novnc:connected', function(){
+$('#canvas_id').on('novnc:connected', function(){
 	//just connected to server
 });
 
-$(canvas).trigger('novnc:passwordrequired', function(){
+$('#canvas_id').on('novnc:passwordrequired', function(){
 	//a password has been requested
 	$('#canvas_id').noVnc().sendPassword(password);
 });
 
-$(canvas).trigger('novnc:loaded', function(){
+$('#canvas_id').on('novnc:loaded', function(){
 	//everything has just loaded and running - the desktop is now ready for use
 });
 
-$(canvas).trigger('novnc:disconnected', function(){
+$('#canvas_id').on('novnc:disconnected', function(){
 	//just disconnected from server
 });
 
