@@ -79,7 +79,7 @@ noVnc.sendKey('3');
 noVnc.sendKey('Return');
 ```
 
-You view all the available key strokes by going to:
+You can view all the available key strokes by going to:
 
 https://github.com/kanaka/noVNC/blob/master/include/keysym.js
 
