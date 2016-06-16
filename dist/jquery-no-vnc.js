@@ -6313,6 +6313,8 @@ XK_ydiaeresis =                  0x00ff; /* U+00FF LATIN SMALL LETTER Y WITH DIA
 
 	(function(){
 
+		var tabindexCounter = 1000000;
+
 		function NoVnc(canvas){
 			
 			$(canvas).on('contextmenu', function(e){
@@ -6323,7 +6325,8 @@ XK_ydiaeresis =                  0x00ff; /* U+00FF LATIN SMALL LETTER Y WITH DIA
 				$(this).focus();
 			});
 
-			$(canvas).attr('tabindex', '');
+			$(canvas).attr('tabindex', tabindexCounter);
+			tabindexCounter++;
 
 			var rfb;
 			var scale = 1;

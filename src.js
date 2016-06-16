@@ -6,6 +6,8 @@
 
 	(function(){
 
+		var tabindexCounter = 1000000;
+
 		function NoVnc(canvas){
 			
 			$(canvas).on('contextmenu', function(e){
@@ -16,7 +18,8 @@
 				$(this).focus();
 			});
 
-			$(canvas).attr('tabindex', '');
+			$(canvas).attr('tabindex', tabindexCounter);
+			tabindexCounter++;
 
 			var rfb;
 			var scale = 1;
