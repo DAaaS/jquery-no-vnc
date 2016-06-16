@@ -6448,6 +6448,9 @@ XK_ydiaeresis =                  0x00ff; /* U+00FF LATIN SMALL LETTER Y WITH DIA
 
 			this.sendKey = function(code, down){
 				if(rfb){
+					if(typeof code == 'string'){
+						code = eval("XK_" + code);
+					}
 					rfb.sendKey(code, down);
 				}
 				return this;
