@@ -6384,6 +6384,8 @@ XK_ydiaeresis =                  0x00ff; /* U+00FF LATIN SMALL LETTER Y WITH DIA
 					desktopWidth = fbu.width;
 					desktopHeight = fbu.height;
 
+					$(canvas).trigger("novnc:resolutionchanged");
+					
 					rescale();
 				}
 			}

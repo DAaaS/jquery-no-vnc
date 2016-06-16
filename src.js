@@ -77,6 +77,8 @@
 					desktopWidth = fbu.width;
 					desktopHeight = fbu.height;
 
+					$(canvas).trigger("novnc:resolutionchanged");
+					
 					rescale();
 				}
 			}
