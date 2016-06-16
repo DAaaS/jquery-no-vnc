@@ -32,11 +32,12 @@ noVnc.resize(width, height);
 noVnc.sendPassword(password);
 
 //Send a key code event. If down not specified, send a down and up event.
-noVnc.sendKey(code, down)
+//see the "More on the sendKey() method" section below
+noVnc.sendKey(code, down);
+noVnc.sendKey(namedSymbol, down);
 
 //disconnect from server
-noVnc.disconnect
-
+noVnc.disconnect();
 
 $('#canvas_id').on('novnc:connected', function(){
 	//just connected to server
@@ -57,6 +58,32 @@ $('#canvas_id').on('novnc:disconnected', function(){
 
 
 ```
+
+### More on the sendKey() method
+
+You can either give the key stroke as a code:
+
+```javascript
+noVnc.sendKey(100);
+```
+
+or you can give the keystroke as a named symbol:
+
+```javascript
+noVnc.sendKey('a');
+noVnc.sendKey('b');
+noVnc.sendKey('c');
+noVnc.sendKey('1');
+noVnc.sendKey('2');
+noVnc.sendKey('3');
+noVnc.sendKey('Return');
+```
+
+You view all the available key strokes by going to:
+
+https://github.com/kanaka/noVNC/blob/master/include/keysym.js
+
+(just remove the 'XK_' prefix)
 
 ## Build
 
