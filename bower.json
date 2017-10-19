@@ -21,7 +21,7 @@
     "tests"
   ],
   "devDependencies": {
-    "no-vnc": "^0.5.1",
+    "no-vnc": "https://github.com/DAaaS/noVNC.git#v0.6.2-touchfix",
     "jquery": "^3.0.0"
   }
 }
