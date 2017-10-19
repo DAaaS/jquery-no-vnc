@@ -437,15 +437,72 @@ Util.load_scripts = function (files) {
 };
 
 
-Util.getPosition = function(obj) {
+// Get DOM element position on page
+//  This solution is based based on http://www.greywyvern.com/?post=331
+//  Thanks to Brian Huisman AKA GreyWyvern!
+Util.getPosition = (function () {
     "use strict";
-    // NB(sross): the Mozilla developer reference seems to indicate that
-    // getBoundingClientRect includes border and padding, so the canvas
-    // style should NOT include either.
-    var objPosition = obj.getBoundingClientRect();
-    return {'x': objPosition.left + window.pageXOffset, 'y': objPosition.top + window.pageYOffset,
-            'width': objPosition.width, 'height': objPosition.height};
-};
+    function getStyle(obj, styleProp) {
+        var y;
+        if (obj.currentStyle) {
+            y = obj.currentStyle[styleProp];
+        } else if (window.getComputedStyle)
+            y = window.getComputedStyle(obj, null)[styleProp];
+        return y;
+    }
+
+    function scrollDist() {
+        var myScrollTop = 0, myScrollLeft = 0;
+        var html = document.getElementsByTagName('html')[0];
+
+        // get the scrollTop part
+        if (html.scrollTop && document.documentElement.scrollTop) {
+            myScrollTop = html.scrollTop;
+        } else if (html.scrollTop || document.documentElement.scrollTop) {
+            myScrollTop = html.scrollTop + document.documentElement.scrollTop;
+        } else if (document.body.scrollTop) {
+            myScrollTop = document.body.scrollTop;
+        } else {
+            myScrollTop = 0;
+        }
+
+        // get the scrollLeft part
+        if (html.scrollLeft && document.documentElement.scrollLeft) {
+            myScrollLeft = html.scrollLeft;
+        } else if (html.scrollLeft || document.documentElement.scrollLeft) {
+            myScrollLeft = html.scrollLeft + document.documentElement.scrollLeft;
+        } else if (document.body.scrollLeft) {
+            myScrollLeft = document.body.scrollLeft;
+        } else {
+            myScrollLeft = 0;
+        }
+
+        return [myScrollLeft, myScrollTop];
+    }
+
+    return function (obj) {
+        var curleft = 0, curtop = 0, scr = obj, fixed = false;
+        while ((scr = scr.parentNode) && scr != document.body) {
+            curleft -= scr.scrollLeft || 0;
+            curtop -= scr.scrollTop || 0;
+            if (getStyle(scr, "position") == "fixed") {
+                fixed = true;
+            }
+        }
+        if (fixed && !window.opera) {
+            var scrDist = scrollDist();
+            curleft += scrDist[0];
+            curtop += scrDist[1];
+        }
+
+        do {
+            curleft += obj.offsetLeft;
+            curtop += obj.offsetTop;
+        } while ((obj = obj.offsetParent));
+
+        return {'x': curleft, 'y': curtop};
+    };
+})();
 
 
 // Get mouse event position in DOM element
@@ -470,8 +527,8 @@ Util.getEventPosition = function (e, obj, scale) {
     }
     var realx = docX - pos.x;
     var realy = docY - pos.y;
-    var x = Math.max(Math.min(realx, pos.width - 1), 0);
-    var y = Math.max(Math.min(realy, pos.height - 1), 0);
+    var x = Math.max(Math.min(realx, obj.width - 1), 0);
+    var y = Math.max(Math.min(realy, obj.height - 1), 0);
     return {'x': x / scale, 'y': y / scale, 'realx': realx / scale, 'realy': realy / scale};
 };
 
@@ -512,29 +569,6 @@ Util.stopEvent = function (e) {
     else                   { e.returnValue = false; }
 };
 
-Util._cursor_uris_supported = null;
-
-Util.browserSupportsCursorURIs = function () {
-    if (Util._cursor_uris_supported === null) {
-        try {
-            var target = document.createElement('canvas');
-            target.style.cursor = 'url("data:image/x-icon;base64,AAACAAEACAgAAAIAAgA4AQAAFgAAACgAAAAIAAAAEAAAAAEAIAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAD/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAAAAAAAAAAAAAAAAAAAA==") 2 2, default';
-
-            if (target.style.cursor) {
-                Util.Info("Data URI scheme cursor supported");
-                Util._cursor_uris_supported = true;
-            } else {
-                Util.Warn("Data URI scheme cursor not supported");
-                Util._cursor_uris_supported = false;
-            }
-        } catch (exc) {
-            Util.Error("Data URI scheme cursor test exception: " + exc);
-            Util._cursor_uris_supported = false;
-        }
-    }
-
-    return Util._cursor_uris_supported;
-};
 
 // Set browser engine versions. Based on mootools.
 Util.Features = {xpath: !!(document.evaluate), air: !!(window.runtime), query: !!(document.querySelector)};
@@ -717,29 +751,6 @@ WebUtil.getQueryVar = function (name, defVal) {
     }
 };
 
-// Read a hash fragment variable
-WebUtil.getHashVar = function (name, defVal) {
-    "use strict";
-    var re = new RegExp('.*[&#]' + name + '=([^&]*)'),
-        match = document.location.hash.match(re);
-    if (typeof defVal === 'undefined') { defVal = null; }
-    if (match) {
-        return decodeURIComponent(match[1]);
-    } else {
-        return defVal;
-    }
-};
-
-// Read a variable from the fragment or the query string
-// Fragment takes precedence
-WebUtil.getConfigVar = function (name, defVal) {
-    "use strict";
-    var val = WebUtil.getHashVar(name);
-    if (val === null) {
-        val = WebUtil.getQueryVar(name, defVal);
-    }
-    return val;
-};
 
 /*
  * Cookie handling. Dervied from: http://www.quirksmode.org/js/cookies.html
@@ -888,36 +899,6 @@ WebUtil.selectStylesheet = function (sheet) {
     return sheet;
 };
 
-WebUtil.injectParamIfMissing = function (path, param, value) {
-    // force pretend that we're dealing with a relative path
-    // (assume that we wanted an extra if we pass one in)
-    path = "/" + path;
-
-    var elem = document.createElement('a');
-    elem.href = path;
-
-    var param_eq = encodeURIComponent(param) + "=";
-    var query;
-    if (elem.search) {
-        query = elem.search.slice(1).split('&');
-    } else {
-        query = [];
-    }
-
-    if (!query.some(function (v) { return v.startsWith(param_eq); })) {
-        query.push(param_eq + encodeURIComponent(value));
-        elem.search = "?" + query.join("&");
-    }
-
-    // some browsers (e.g. IE11) may occasionally omit the leading slash
-    // in the elem.pathname string. Handle that case gracefully.
-    if (elem.pathname.charAt(0) == "/") {
-        return elem.pathname.slice(1) + elem.search + elem.hash;
-    } else {
-        return elem.pathname + elem.search + elem.hash;
-    }
-};
-
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1049,7 +1030,7 @@ var Base64 = {
  */
 
 /*jslint browser: true, bitwise: true */
-/*global Util*/
+/*global Util, Base64 */
 
 
 // Load Flash WebSocket emulator if needed
@@ -1068,26 +1049,29 @@ if (window.WebSocket && !window.WEB_SOCKET_FORCE_FLASH) {
     /* no builtin WebSocket so load web_socket.js */
 
     Websock_native = false;
+    (function () {
+        window.WEB_SOCKET_SWF_LOCATION = Util.get_include_uri() +
+                    "web-socket-js/WebSocketMain.swf";
+        if (Util.Engine.trident) {
+            Util.Debug("Forcing uncached load of WebSocketMain.swf");
+            window.WEB_SOCKET_SWF_LOCATION += "?" + Math.random();
+        }
+        Util.load_scripts(["web-socket-js/swfobject.js",
+                           "web-socket-js/web_socket.js"]);
+    })();
 }
+
 
 function Websock() {
     "use strict";
 
     this._websocket = null;  // WebSocket object
-
+    this._rQ = [];           // Receive queue
     this._rQi = 0;           // Receive queue index
-    this._rQlen = 0;         // Next write position in the receive queue
-    this._rQbufferSize = 1024 * 1024 * 4; // Receive queue buffer size (4 MiB)
-    this._rQmax = this._rQbufferSize / 8;
-    // called in init: this._rQ = new Uint8Array(this._rQbufferSize);
-    this._rQ = null; // Receive queue
+    this._rQmax = 10000;     // Max receive queue size before compacting
+    this._sQ = [];           // Send queue
 
-    this._sQbufferSize = 1024 * 10;  // 10 KiB
-    // called in init: this._sQ = new Uint8Array(this._sQbufferSize);
-    this._sQlen = 0;
-    this._sQ = null;  // Send queue
-
-    this._mode = 'binary';    // Current WebSocket mode: 'binary', 'base64'
+    this._mode = 'base64';    // Current WebSocket mode: 'binary', 'base64'
     this.maxBufferedAmount = 200;
 
     this._eventHandlers = {
@@ -1100,28 +1084,6 @@ function Websock() {
 
 (function () {
     "use strict";
-    // this has performance issues in some versions Chromium, and
-    // doesn't gain a tremendous amount of performance increase in Firefox
-    // at the moment.  It may be valuable to turn it on in the future.
-    var ENABLE_COPYWITHIN = false;
-
-    var MAX_RQ_GROW_SIZE = 40 * 1024 * 1024;  // 40 MiB
-
-    var typedArrayToString = (function () {
-        // This is only for PhantomJS, which doesn't like apply-ing
-        // with Typed Arrays
-        try {
-            var arr = new Uint8Array([1, 2, 3]);
-            String.fromCharCode.apply(null, arr);
-            return function (a) { return String.fromCharCode.apply(null, a); };
-        } catch (ex) {
-            return function (a) {
-                return String.fromCharCode.apply(
-                    null, Array.prototype.slice.call(a));
-            };
-        }
-    })();
-
     Websock.prototype = {
         // Getters and Setters
         get_sQ: function () {
@@ -1142,7 +1104,7 @@ function Websock() {
 
         // Receive Queue
         rQlen: function () {
-            return this._rQlen - this._rQi;
+            return this._rQ.length - this._rQi;
         },
 
         rQpeek8: function () {
@@ -1161,7 +1123,15 @@ function Websock() {
             this._rQi += num;
         },
 
-        // TODO(directxman12): test performance with these vs a DataView
+        rQunshift8: function (num) {
+            if (this._rQi === 0) {
+                this._rQ.unshift(num);
+            } else {
+                this._rQi--;
+                this._rQ[this._rQi] = num;
+            }
+        },
+
         rQshift16: function () {
             return (this._rQ[this._rQi++] << 8) +
                    this._rQ[this._rQi++];
@@ -1176,33 +1146,22 @@ function Websock() {
 
         rQshiftStr: function (len) {
             if (typeof(len) === 'undefined') { len = this.rQlen(); }
-            var arr = new Uint8Array(this._rQ.buffer, this._rQi, len);
+            var arr = this._rQ.slice(this._rQi, this._rQi + len);
             this._rQi += len;
-            return typedArrayToString(arr);
+            return String.fromCharCode.apply(null, arr);
         },
 
         rQshiftBytes: function (len) {
             if (typeof(len) === 'undefined') { len = this.rQlen(); }
             this._rQi += len;
-            return new Uint8Array(this._rQ.buffer, this._rQi - len, len);
-        },
-
-        rQshiftTo: function (target, len) {
-            if (len === undefined) { len = this.rQlen(); }
-            // TODO: make this just use set with views when using a ArrayBuffer to store the rQ
-            target.set(new Uint8Array(this._rQ.buffer, this._rQi, len));
-            this._rQi += len;
-        },
-
-        rQwhole: function () {
-            return new Uint8Array(this._rQ.buffer, 0, this._rQlen);
+            return this._rQ.slice(this._rQi - len, this._rQi);
         },
 
         rQslice: function (start, end) {
             if (end) {
-                return new Uint8Array(this._rQ.buffer, this._rQi + start, end - start);
+                return this._rQ.slice(this._rQi + start, this._rQi + end);
             } else {
-                return new Uint8Array(this._rQ.buffer, this._rQi + start, this._rQlen - this._rQi - start);
+                return this._rQ.slice(this._rQi + start);
             }
         },
 
@@ -1210,7 +1169,7 @@ function Websock() {
         // to be available in the receive queue. Return true if we need to
         // wait (and possibly print a debug message), otherwise false.
         rQwait: function (msg, num, goback) {
-            var rQlen = this._rQlen - this._rQi; // Skip rQlen() function call
+            var rQlen = this._rQ.length - this._rQi; // Skip rQlen() function call
             if (rQlen < num) {
                 if (goback) {
                     if (this._rQi < goback) {
@@ -1231,9 +1190,9 @@ function Websock() {
             }
 
             if (this._websocket.bufferedAmount < this.maxBufferedAmount) {
-                if (this._sQlen > 0 && this._websocket.readyState === WebSocket.OPEN) {
+                if (this._sQ.length > 0) {
                     this._websocket.send(this._encode_message());
-                    this._sQlen = 0;
+                    this._sQ = [];
                 }
 
                 return true;
@@ -1245,9 +1204,8 @@ function Websock() {
         },
 
         send: function (arr) {
-            this._sQ.set(arr, this._sQlen);
-            this._sQlen += arr.length;
-            return this.flush();
+           this._sQ = this._sQ.concat(arr);
+           return this.flush();
         },
 
         send_string: function (str) {
@@ -1257,22 +1215,14 @@ function Websock() {
         },
 
         // Event Handlers
-        off: function (evt) {
-            this._eventHandlers[evt] = function () {};
-        },
-
         on: function (evt, handler) {
             this._eventHandlers[evt] = handler;
         },
 
-        _allocate_buffers: function () {
-            this._rQ = new Uint8Array(this._rQbufferSize);
-            this._sQ = new Uint8Array(this._sQbufferSize);
-        },
-
         init: function (protocols, ws_schema) {
-            this._allocate_buffers();
+            this._rQ = [];
             this._rQi = 0;
+            this._sQ = [];
             this._websocket = null;
 
             // Check for full typed array support
@@ -1299,21 +1249,35 @@ function Websock() {
 
             // Default protocols if not specified
             if (typeof(protocols) === "undefined") {
-                protocols = 'binary';
-            }
-
-            if (Array.isArray(protocols) && protocols.indexOf('binary') > -1) {
-                protocols = 'binary';
+                if (wsbt) {
+                    protocols = ['binary', 'base64'];
+                } else {
+                    protocols = 'base64';
+                }
             }
 
             if (!wsbt) {
-                throw new Error("noVNC no longer supports base64 WebSockets.  " +
-                                "Please use a browser which supports binary WebSockets.");
-            }
+                if (protocols === 'binary') {
+                    throw new Error('WebSocket binary sub-protocol requested but not supported');
+                }
 
-            if (protocols != 'binary') {
-                throw new Error("noVNC no longer supports base64 WebSockets.  Please " +
-                                "use the binary subprotocol instead.");
+                if (typeof(protocols) === 'object') {
+                    var new_protocols = [];
+
+                    for (var i = 0; i < protocols.length; i++) {
+                        if (protocols[i] === 'binary') {
+                            Util.Error('Skipping unsupported WebSocket binary sub-protocol');
+                        } else {
+                            new_protocols.push(protocols[i]);
+                        }
+                    }
+
+                    if (new_protocols.length > 0) {
+                        protocols = new_protocols;
+                    } else {
+                        throw new Error("Only WebSocket binary sub-protocol was requested and is not supported.");
+                    }
+                }
             }
 
             return protocols;
@@ -1336,16 +1300,9 @@ function Websock() {
                     this._mode = this._websocket.protocol;
                     Util.Info("Server choose sub-protocol: " + this._websocket.protocol);
                 } else {
-                    this._mode = 'binary';
+                    this._mode = 'base64';
                     Util.Error('Server select no sub-protocol!: ' + this._websocket.protocol);
                 }
-
-                if (this._mode != 'binary') {
-                    throw new Error("noVNC no longer supports base64 WebSockets.  Please " +
-                                    "use the binary subprotocol instead.");
-
-                }
-
                 this._eventHandlers.open();
                 Util.Debug("<< WebSock.onopen");
             }).bind(this);
@@ -1375,56 +1332,26 @@ function Websock() {
 
         // private methods
         _encode_message: function () {
-            // Put in a binary arraybuffer
-            // according to the spec, you can send ArrayBufferViews with the send method
-            return new Uint8Array(this._sQ.buffer, 0, this._sQlen);
-        },
-
-        _expand_compact_rQ: function (min_fit) {
-            var resizeNeeded = min_fit || this._rQlen - this._rQi > this._rQbufferSize / 2;
-            if (resizeNeeded) {
-                if (!min_fit) {
-                    // just double the size if we need to do compaction
-                    this._rQbufferSize *= 2;
-                } else {
-                    // otherwise, make sure we satisy rQlen - rQi + min_fit < rQbufferSize / 8
-                    this._rQbufferSize = (this._rQlen - this._rQi + min_fit) * 8;
-                }
-            }
-
-            // we don't want to grow unboundedly
-            if (this._rQbufferSize > MAX_RQ_GROW_SIZE) {
-                this._rQbufferSize = MAX_RQ_GROW_SIZE;
-                if (this._rQbufferSize - this._rQlen - this._rQi < min_fit) {
-                    throw new Exception("Receive Queue buffer exceeded " + MAX_RQ_GROW_SIZE + " bytes, and the new message could not fit");
-                }
-            }
-
-            if (resizeNeeded) {
-                var old_rQbuffer = this._rQ.buffer;
-                this._rQmax = this._rQbufferSize / 8;
-                this._rQ = new Uint8Array(this._rQbufferSize);
-                this._rQ.set(new Uint8Array(old_rQbuffer, this._rQi));
+            if (this._mode === 'binary') {
+                // Put in a binary arraybuffer
+                return (new Uint8Array(this._sQ)).buffer;
             } else {
-                if (ENABLE_COPYWITHIN) {
-                    this._rQ.copyWithin(0, this._rQi);
-                } else {
-                    this._rQ.set(new Uint8Array(this._rQ.buffer, this._rQi));
-                }
+                // base64 encode
+                return Base64.encode(this._sQ);
             }
-
-            this._rQlen = this._rQlen - this._rQi;
-            this._rQi = 0;
         },
 
         _decode_message: function (data) {
-            // push arraybuffer values onto the end
-            var u8 = new Uint8Array(data);
-            if (u8.length > this._rQbufferSize - this._rQlen) {
-                this._expand_compact_rQ(u8.length);
+            if (this._mode === 'binary') {
+                // push arraybuffer values onto the end
+                var u8 = new Uint8Array(data);
+                for (var i = 0; i < u8.length; i++) {
+                    this._rQ.push(u8[i]);
+                }
+            } else {
+                // base64 decode and concat to end
+                this._rQ = this._rQ.concat(Base64.decode(data, 0));
             }
-            this._rQ.set(u8, this._rQlen);
-            this._rQlen += u8.length;
         },
 
         _recv_message: function (e) {
@@ -1433,11 +1360,9 @@ function Websock() {
                 if (this.rQlen() > 0) {
                     this._eventHandlers.message();
                     // Compact the receive queue
-                    if (this._rQlen == this._rQi) {
-                        this._rQlen = 0;
+                    if (this._rQ.length > this._rQmax) {
+                        this._rQ = this._rQ.slice(this._rQi);
                         this._rQi = 0;
-                    } else if (this._rQlen > this._rQmax) {
-                        this._expand_compact_rQ();
                     }
                 } else {
                     Util.Debug("Ignoring empty message");
@@ -2524,7 +2449,7 @@ var Keyboard, Mouse;
                 // Touch device
 
                 // When two touches occur within 500 ms of each other and are
-                // close enough together a double click is triggered.
+                // closer than 20 pixels together a double click is triggered.
                 if (down == 1) {
                     if (this._doubleClickTimer === null) {
                         this._lastTouchPos = pos;
@@ -2541,8 +2466,7 @@ var Keyboard, Mouse;
 
                         // The goal is to trigger on a certain physical width, the
                         // devicePixelRatio brings us a bit closer but is not optimal.
-                        var threshold = 20 * (window.devicePixelRatio || 1);
-                        if (d < threshold) {
+                        if (d < 20 * window.devicePixelRatio) {
                             pos = this._lastTouchPos;
                         }
                     }
@@ -2652,8 +2576,8 @@ var Keyboard, Mouse;
                 Util.addEvent(c, 'touchmove', this._eventHandlers.mousemove);
             }
 
-            // v0.6.2-touchfix - removing logic such that it's either mouse events or touch events.
-	    // Some laptops have touch screens which means they cannot use their mouse.
+            // v0.5.1-touchfix - removing logic such that it's either mouse events or touch events.
+            // Some laptops have touch screens which means they cannot use their mouse.
             Util.addEvent(c, 'mousedown', this._eventHandlers.mousedown);
             Util.addEvent(window, 'mouseup', this._eventHandlers.mouseup);
             Util.addEvent(c, 'mouseup', this._eventHandlers.mouseup);
@@ -2676,8 +2600,8 @@ var Keyboard, Mouse;
                 Util.removeEvent(c, 'touchmove', this._eventHandlers.mousemove);
             }
 
-            // v0.6.2-touchfix - removing logic such that it's either mouse events or touch events.
-	    // Some laptops have touch screens which means they cannot use their mouse.
+            // v0.5.1-touchfix - removing logic such that it's either mouse events or touch events.
+            // Some laptops have touch screens which means they cannot use their mouse.
             Util.removeEvent(c, 'mousedown', this._eventHandlers.mousedown);
             Util.removeEvent(window, 'mouseup', this._eventHandlers.mouseup);
             Util.removeEvent(c, 'mouseup', this._eventHandlers.mouseup);
@@ -2707,7 +2631,6 @@ var Keyboard, Mouse;
 /*
  * noVNC: HTML5 VNC client
  * Copyright (C) 2012 Joel Martin
- * Copyright (C) 2015 Samuel Mannehed for Cendio AB
  * Licensed under MPL 2.0 (see LICENSE.txt)
  *
  * See README.md for usage and integration instructions.
@@ -2721,14 +2644,6 @@ var Display;
 (function () {
     "use strict";
 
-    var SUPPORTS_IMAGEDATA_CONSTRUCTOR = false;
-    try {
-        new ImageData(new Uint8ClampedArray(1), 1, 1);
-        SUPPORTS_IMAGEDATA_CONSTRUCTOR = true;
-    } catch (ex) {
-        // ignore failure
-    }
-
     Display = function (defaults) {
         this._drawCtx = null;
         this._c_forceCanvas = false;
@@ -2738,10 +2653,6 @@ var Display;
         // the full frame buffer (logical canvas) size
         this._fb_width = 0;
         this._fb_height = 0;
-
-        // the size limit of the viewport (start disabled)
-        this._maxWidth = 0;
-        this._maxHeight = 0;
 
         // the visible "physical canvas" viewport
         this._viewportLoc = { 'x': 0, 'y': 0, 'w': 0, 'h': 0 };
@@ -2800,9 +2711,28 @@ var Display;
         }
 
         // Determine browser support for setting the cursor via data URI scheme
-        if (this._cursor_uri || this._cursor_uri === null ||
-                this._cursor_uri === undefined) {
-            this._cursor_uri = Util.browserSupportsCursorURIs();
+        var curDat = [];
+        for (var i = 0; i < 8 * 8 * 4; i++) {
+            curDat.push(255);
+        }
+        try {
+            var curSave = this._target.style.cursor;
+            Display.changeCursor(this._target, curDat, curDat, 2, 2, 8, 8);
+            if (this._target.style.cursor) {
+                if (this._cursor_uri === null || this._cursor_uri === undefined) {
+                    this._cursor_uri = true;
+                }
+                Util.Info("Data URI scheme cursor supported");
+            } else {
+                if (this._cursor_uri === null || this._cursor_uri === undefined) {
+                    this._cursor_uri = false;
+                }
+                Util.Warn("Data URI scheme cursor not supported");
+            }
+            this._target.style.cursor = curSave;
+        } catch (exc) {
+            Util.Error("Data URI scheme cursor test exception: " + exc);
+            this._cursor_uri = false;
         }
 
         Util.Debug("<< Display.constructor");
@@ -2810,14 +2740,54 @@ var Display;
 
     Display.prototype = {
         // Public methods
-        viewportChangePos: function (deltaX, deltaY) {
+        viewportChange: function (deltaX, deltaY, width, height) {
             var vp = this._viewportLoc;
-            deltaX = Math.floor(deltaX);
-            deltaY = Math.floor(deltaY);
+            var cr = this._cleanRect;
+            var canvas = this._target;
 
             if (!this._viewport) {
+                Util.Debug("Setting viewport to full display region");
                 deltaX = -vp.w;  // clamped later of out of bounds
                 deltaY = -vp.h;
+                width = this._fb_width;
+                height = this._fb_height;
+            }
+
+            if (typeof(deltaX) === "undefined") { deltaX = 0; }
+            if (typeof(deltaY) === "undefined") { deltaY = 0; }
+            if (typeof(width) === "undefined") { width = vp.w; }
+            if (typeof(height) === "undefined") { height = vp.h; }
+
+            // Size change
+            if (width > this._fb_width) { width = this._fb_width; }
+            if (height > this._fb_height) { height = this._fb_height; }
+
+            if (vp.w !== width || vp.h !== height) {
+                // Change width
+                if (width < vp.w &&  cr.x2 > vp.x + width - 1) {
+                    cr.x2 = vp.x + width - 1;
+                }
+                vp.w = width;
+
+                // Change height
+                if (height < vp.h &&  cr.y2 > vp.y + height - 1) {
+                    cr.y2 = vp.y + height - 1;
+                }
+                vp.h = height;
+
+                var saveImg = null;
+                if (vp.w > 0 && vp.h > 0 && canvas.width > 0 && canvas.height > 0) {
+                    var img_width = canvas.width < vp.w ? canvas.width : vp.w;
+                    var img_height = canvas.height < vp.h ? canvas.height : vp.h;
+                    saveImg = this._drawCtx.getImageData(0, 0, img_width, img_height);
+                }
+
+                canvas.width = vp.w;
+                canvas.height = vp.h;
+
+                if (saveImg) {
+                    this._drawCtx.putImageData(saveImg, 0, 0);
+                }
             }
 
             var vx2 = vp.x + vp.w - 1;
@@ -2850,7 +2820,6 @@ var Display;
             vy2 += deltaY;
 
             // Update the clean rectangle
-            var cr = this._cleanRect;
             if (vp.x > cr.x1) {
                 cr.x1 = vp.x;
             }
@@ -2886,97 +2855,18 @@ var Display;
                 h = deltaY;
             }
 
-            var saveStyle = this._drawCtx.fillStyle;
-            var canvas = this._target;
-            this._drawCtx.fillStyle = "rgb(255,255,255)";
-
-            // Due to this bug among others [1] we need to disable the image-smoothing to
-            // avoid getting a blur effect when panning.
-            //
-            // 1. https://bugzilla.mozilla.org/show_bug.cgi?id=1194719
-            //
-            // We need to set these every time since all properties are reset
-            // when the the size is changed
-            if (this._drawCtx.mozImageSmoothingEnabled) {
-                this._drawCtx.mozImageSmoothingEnabled = false;
-            } else if (this._drawCtx.webkitImageSmoothingEnabled) {
-                this._drawCtx.webkitImageSmoothingEnabled = false;
-            } else if (this._drawCtx.msImageSmoothingEnabled) {
-                this._drawCtx.msImageSmoothingEnabled = false;
-            } else if (this._drawCtx.imageSmoothingEnabled) {
-                this._drawCtx.imageSmoothingEnabled = false;
-            }
-
             // Copy the valid part of the viewport to the shifted location
-            this._drawCtx.drawImage(canvas, 0, 0, vp.w, vp.h, -deltaX, -deltaY, vp.w, vp.h);
-
+            var saveStyle = this._drawCtx.fillStyle;
+            this._drawCtx.fillStyle = "rgb(255,255,255)";
             if (deltaX !== 0) {
+                this._drawCtx.drawImage(canvas, 0, 0, vp.w, vp.h, -deltaX, 0, vp.w, vp.h);
                 this._drawCtx.fillRect(x1, 0, w, vp.h);
             }
             if (deltaY !== 0) {
+                this._drawCtx.drawImage(canvas, 0, 0, vp.w, vp.h, 0, -deltaY, vp.w, vp.h);
                 this._drawCtx.fillRect(0, y1, vp.w, h);
             }
             this._drawCtx.fillStyle = saveStyle;
-        },
-
-        viewportChangeSize: function(width, height) {
-
-            if (typeof(width) === "undefined" || typeof(height) === "undefined") {
-
-                Util.Debug("Setting viewport to full display region");
-                width = this._fb_width;
-                height = this._fb_height;
-            }
-
-            var vp = this._viewportLoc;
-            if (vp.w !== width || vp.h !== height) {
-
-                if (this._viewport) {
-                    if (this._maxWidth !== 0 && width > this._maxWidth) {
-                        width = this._maxWidth;
-                    }
-                    if (this._maxHeight !== 0 && height > this._maxHeight) {
-                        height = this._maxHeight;
-                    }
-                }
-
-                var cr = this._cleanRect;
-
-                if (width < vp.w &&  cr.x2 > vp.x + width - 1) {
-                    cr.x2 = vp.x + width - 1;
-                }
-                if (height < vp.h &&  cr.y2 > vp.y + height - 1) {
-                    cr.y2 = vp.y + height - 1;
-                }
-
-                vp.w = width;
-                vp.h = height;
-
-                var canvas = this._target;
-                if (canvas.width !== width || canvas.height !== height) {
-
-                    // We have to save the canvas data since changing the size will clear it
-                    var saveImg = null;
-                    if (vp.w > 0 && vp.h > 0 && canvas.width > 0 && canvas.height > 0) {
-                        var img_width = canvas.width < vp.w ? canvas.width : vp.w;
-                        var img_height = canvas.height < vp.h ? canvas.height : vp.h;
-                        saveImg = this._drawCtx.getImageData(0, 0, img_width, img_height);
-                    }
-
-                    if (canvas.width !== width) {
-                        canvas.width = width;
-                        canvas.style.width = width + 'px';
-                    }
-                    if (canvas.height !== height) {
-                        canvas.height = height;
-                        canvas.style.height = height + 'px';
-                    }
-
-                    if (saveImg) {
-                        this._drawCtx.putImageData(saveImg, 0, 0);
-                    }
-                }
-            }
         },
 
         // Return a map of clean and dirty areas of the viewport and reset the
@@ -3044,7 +2934,7 @@ var Display;
 
             this._rescale(this._scale);
 
-            this.viewportChangeSize();
+            this.viewportChange();
         },
 
         clear: function () {
@@ -3065,41 +2955,18 @@ var Display;
             this._renderQ = [];
         },
 
-        fillRect: function (x, y, width, height, color, from_queue) {
-            if (this._renderQ.length !== 0 && !from_queue) {
-                this.renderQ_push({
-                    'type': 'fill',
-                    'x': x,
-                    'y': y,
-                    'width': width,
-                    'height': height,
-                    'color': color
-                });
-            } else {
-                this._setFillColor(color);
-                this._drawCtx.fillRect(x - this._viewportLoc.x, y - this._viewportLoc.y, width, height);
-            }
+        fillRect: function (x, y, width, height, color) {
+            this._setFillColor(color);
+            this._drawCtx.fillRect(x - this._viewportLoc.x, y - this._viewportLoc.y, width, height);
         },
 
-        copyImage: function (old_x, old_y, new_x, new_y, w, h, from_queue) {
-            if (this._renderQ.length !== 0 && !from_queue) {
-                this.renderQ_push({
-                    'type': 'copy',
-                    'old_x': old_x,
-                    'old_y': old_y,
-                    'x': new_x,
-                    'y': new_y,
-                    'width': w,
-                    'height': h,
-                });
-            } else {
-                var x1 = old_x - this._viewportLoc.x;
-                var y1 = old_y - this._viewportLoc.y;
-                var x2 = new_x - this._viewportLoc.x;
-                var y2 = new_y - this._viewportLoc.y;
+        copyImage: function (old_x, old_y, new_x, new_y, w, h) {
+            var x1 = old_x - this._viewportLoc.x;
+            var y1 = old_y - this._viewportLoc.y;
+            var x2 = new_x - this._viewportLoc.x;
+            var y2 = new_y - this._viewportLoc.y;
 
-                this._drawCtx.drawImage(this._target, x1, y1, w, h, x2, y2, w, h);
-            }
+            this._drawCtx.drawImage(this._target, x1, y1, w, h, x2, y2, w, h);
         },
 
         // start updating a tile
@@ -3131,7 +2998,7 @@ var Display;
                     data[i + 3] = 255;
                 }
             } else {
-                this.fillRect(x, y, width, height, color, true);
+                this.fillRect(x, y, width, height, color);
             }
         },
 
@@ -3162,7 +3029,7 @@ var Display;
                     }
                 }
             } else {
-                this.fillRect(this._tile_x + x, this._tile_y + y, w, h, color, true);
+                this.fillRect(this._tile_x + x, this._tile_y + y, w, h, color);
             }
         },
 
@@ -3175,68 +3042,20 @@ var Display;
             // else: No-op -- already done by setSubTile
         },
 
-        blitImage: function (x, y, width, height, arr, offset, from_queue) {
-            if (this._renderQ.length !== 0 && !from_queue) {
-                // NB(directxman12): it's technically more performant here to use preallocated arrays,
-                // but it's a lot of extra work for not a lot of payoff -- if we're using the render queue,
-                // this probably isn't getting called *nearly* as much
-                var new_arr = new Uint8Array(width * height * 4);
-                new_arr.set(new Uint8Array(arr.buffer, 0, new_arr.length));
-                this.renderQ_push({
-                    'type': 'blit',
-                    'data': new_arr,
-                    'x': x,
-                    'y': y,
-                    'width': width,
-                    'height': height,
-                });
-            } else if (this._true_color) {
+        blitImage: function (x, y, width, height, arr, offset) {
+            if (this._true_color) {
                 this._bgrxImageData(x, y, this._viewportLoc.x, this._viewportLoc.y, width, height, arr, offset);
             } else {
                 this._cmapImageData(x, y, this._viewportLoc.x, this._viewportLoc.y, width, height, arr, offset);
             }
         },
 
-        blitRgbImage: function (x, y , width, height, arr, offset, from_queue) {
-            if (this._renderQ.length !== 0 && !from_queue) {
-                // NB(directxman12): it's technically more performant here to use preallocated arrays,
-                // but it's a lot of extra work for not a lot of payoff -- if we're using the render queue,
-                // this probably isn't getting called *nearly* as much
-                var new_arr = new Uint8Array(width * height * 4);
-                new_arr.set(new Uint8Array(arr.buffer, 0, new_arr.length));
-                this.renderQ_push({
-                    'type': 'blitRgb',
-                    'data': new_arr,
-                    'x': x,
-                    'y': y,
-                    'width': width,
-                    'height': height,
-                });
-            } else if (this._true_color) {
+        blitRgbImage: function (x, y , width, height, arr, offset) {
+            if (this._true_color) {
                 this._rgbImageData(x, y, this._viewportLoc.x, this._viewportLoc.y, width, height, arr, offset);
             } else {
                 // probably wrong?
                 this._cmapImageData(x, y, this._viewportLoc.x, this._viewportLoc.y, width, height, arr, offset);
-            }
-        },
-
-        blitRgbxImage: function (x, y, width, height, arr, offset, from_queue) {
-            if (this._renderQ.length !== 0 && !from_queue) {
-                // NB(directxman12): it's technically more performant here to use preallocated arrays,
-                // but it's a lot of extra work for not a lot of payoff -- if we're using the render queue,
-                // this probably isn't getting called *nearly* as much
-                var new_arr = new Uint8Array(width * height * 4);
-                new_arr.set(new Uint8Array(arr.buffer, 0, new_arr.length));
-                this.renderQ_push({
-                    'type': 'blitRgbx',
-                    'data': new_arr,
-                    'x': x,
-                    'y': y,
-                    'width': width,
-                    'height': height,
-                });
-            } else {
-                this._rgbxImageData(x, y, this._viewportLoc.x, this._viewportLoc.y, width, height, arr, offset);
             }
         },
 
@@ -3281,24 +3100,6 @@ var Display;
             this._target.style.cursor = "default";
         },
 
-        disableLocalCursor: function () {
-            this._target.style.cursor = "none";
-        },
-
-        clippingDisplay: function () {
-            var vp = this._viewportLoc;
-
-            var fbClip = this._fb_width > vp.w || this._fb_height > vp.h;
-            var limitedVp = this._maxWidth !== 0 && this._maxHeight !== 0;
-            var clipping = false;
-
-            if (limitedVp) {
-                clipping = vp.w > this._maxWidth || vp.h > this._maxHeight;
-            }
-
-            return fbClip || (limitedVp && clipping);
-        },
-
         // Overridden getters/setters
         get_context: function () {
             return this._drawCtx;
@@ -3309,73 +3110,51 @@ var Display;
         },
 
         set_width: function (w) {
-            this._fb_width = w;
+            this.resize(w, this._fb_height);
         },
         get_width: function () {
             return this._fb_width;
         },
 
         set_height: function (h) {
-            this._fb_height =  h;
+            this.resize(this._fb_width, h);
         },
         get_height: function () {
             return this._fb_height;
         },
 
-        autoscale: function (containerWidth, containerHeight, downscaleOnly) {
-            var targetAspectRatio = containerWidth / containerHeight;
-            var fbAspectRatio = this._fb_width / this._fb_height;
-
-            var scaleRatio;
-            if (fbAspectRatio >= targetAspectRatio) {
-                scaleRatio = containerWidth / this._fb_width;
-            } else {
-                scaleRatio = containerHeight / this._fb_height;
-            }
-
-            var targetW, targetH;
-            if (scaleRatio > 1.0 && downscaleOnly) {
-                targetW = this._fb_width;
-                targetH = this._fb_height;
-                scaleRatio = 1.0;
-            } else if (fbAspectRatio >= targetAspectRatio) {
-                targetW = containerWidth;
-                targetH = Math.round(containerWidth / fbAspectRatio);
-            } else {
-                targetW = Math.round(containerHeight * fbAspectRatio);
-                targetH = containerHeight;
-            }
-
-            // NB(directxman12): If you set the width directly, or set the
-            //                   style width to a number, the canvas is cleared.
-            //                   However, if you set the style width to a string
-            //                   ('NNNpx'), the canvas is scaled without clearing.
-            this._target.style.width = targetW + 'px';
-            this._target.style.height = targetH + 'px';
-
-            this._scale = scaleRatio;
-
-            return scaleRatio;  // so that the mouse, etc scale can be set
-        },
-
         // Private Methods
         _rescale: function (factor) {
-            this._scale = factor;
-
-            var w;
-            var h;
-
-            if (this._viewport &&
-                this._maxWidth !== 0 && this._maxHeight !== 0) {
-                w = Math.min(this._fb_width, this._maxWidth);
-                h = Math.min(this._fb_height, this._maxHeight);
-            } else {
-                w = this._fb_width;
-                h = this._fb_height;
+            var canvas = this._target;
+            var properties = ['transform', 'WebkitTransform', 'MozTransform'];
+            var transform_prop;
+            while ((transform_prop = properties.shift())) {
+                if (typeof canvas.style[transform_prop] !== 'undefined') {
+                    break;
+                }
             }
 
-            this._target.style.width = Math.round(factor * w) + 'px';
-            this._target.style.height = Math.round(factor * h) + 'px';
+            if (transform_prop === null) {
+                Util.Debug("No scaling support");
+                return;
+            }
+
+            if (typeof(factor) === "undefined") {
+                factor = this._scale;
+            } else if (factor > 1.0) {
+                factor = 1.0;
+            } else if (factor < 0.1) {
+                factor = 0.1;
+            }
+
+            if (this._scale === factor) {
+                return;
+            }
+
+            this._scale = factor;
+            var x = canvas.width - (canvas.width * factor);
+            var y = canvas.height - (canvas.height * factor);
+            canvas.style[transform_prop] = 'scale(' + this._scale + ') translate(-' + x + 'px, -' + y + 'px)';
         },
 
         _setFillColor: function (color) {
@@ -3383,7 +3162,7 @@ var Display;
             if (this._true_color) {
                 bgr = color;
             } else {
-                bgr = this._colourMap[color];
+                bgr = this._colourMap[color[0]];
             }
 
             var newStyle = 'rgb(' + bgr[2] + ',' + bgr[1] + ',' + bgr[0] + ')';
@@ -3417,18 +3196,6 @@ var Display;
             this._drawCtx.putImageData(img, x - vx, y - vy);
         },
 
-        _rgbxImageData: function (x, y, vx, vy, width, height, arr, offset) {
-            // NB(directxman12): arr must be an Type Array view
-            var img;
-            if (SUPPORTS_IMAGEDATA_CONSTRUCTOR) {
-                img = new ImageData(new Uint8ClampedArray(arr.buffer, arr.byteOffset, width * height * 4), width, height);
-            } else {
-                img = this._drawCtx.createImageData(width, height);
-                img.data.set(new Uint8ClampedArray(arr.buffer, arr.byteOffset, width * height * 4));
-            }
-            this._drawCtx.putImageData(img, x - vx, y - vy);
-        },
-
         _cmapImageData: function (x, y, vx, vy, width, height, arr, offset) {
             var img = this._drawCtx.createImageData(width, height);
             var data = img.data;
@@ -3449,19 +3216,16 @@ var Display;
                 var a = this._renderQ[0];
                 switch (a.type) {
                     case 'copy':
-                        this.copyImage(a.old_x, a.old_y, a.x, a.y, a.width, a.height, true);
+                        this.copyImage(a.old_x, a.old_y, a.x, a.y, a.width, a.height);
                         break;
                     case 'fill':
-                        this.fillRect(a.x, a.y, a.width, a.height, a.color, true);
+                        this.fillRect(a.x, a.y, a.width, a.height, a.color);
                         break;
                     case 'blit':
-                        this.blitImage(a.x, a.y, a.width, a.height, a.data, 0, true);
+                        this.blitImage(a.x, a.y, a.width, a.height, a.data, 0);
                         break;
                     case 'blitRgb':
-                        this.blitRgbImage(a.x, a.y, a.width, a.height, a.data, 0, true);
-                        break;
-                    case 'blitRgbx':
-                        this.blitRgbxImage(a.x, a.y, a.width, a.height, a.data, 0, true);
+                        this.blitRgbImage(a.x, a.y, a.width, a.height, a.data, 0);
                         break;
                     case 'img':
                         if (a.img.complete) {
@@ -3492,11 +3256,9 @@ var Display;
         ['true_color', 'rw', 'bool'],  // Use true-color pixel data
         ['colourMap', 'rw', 'arr'],    // Colour map array (when not true-color)
         ['scale', 'rw', 'float'],      // Display area scale factor 0.0 - 1.0
-        ['viewport', 'rw', 'bool'],    // Use viewport clipping
+        ['viewport', 'rw', 'bool'],    // Use a viewport set with viewportChange()
         ['width', 'rw', 'int'],        // Display area width
         ['height', 'rw', 'int'],       // Display area height
-        ['maxWidth', 'rw', 'int'],     // Viewport max width (0 if disabled)
-        ['maxHeight', 'rw', 'int'],    // Viewport max height (0 if disabled)
 
         ['render_mode', 'ro', 'str'],  // Canvas rendering mode (read-only)
 
@@ -3613,6 +3375,682 @@ var Display;
     };
 })();
 
+/*
+ * JSUnzip
+ *
+ * Copyright (c) 2011 by Erik Moller
+ * All Rights Reserved
+ *
+ * This software is provided 'as-is', without any express
+ * or implied warranty.  In no event will the authors be
+ * held liable for any damages arising from the use of
+ * this software.
+ *
+ * Permission is granted to anyone to use this software
+ * for any purpose, including commercial applications,
+ * and to alter it and redistribute it freely, subject to
+ * the following restrictions:
+ *
+ * 1. The origin of this software must not be
+ *    misrepresented; you must not claim that you
+ *    wrote the original software. If you use this
+ *    software in a product, an acknowledgment in
+ *    the product documentation would be appreciated
+ *    but is not required.
+ *
+ * 2. Altered source versions must be plainly marked
+ *    as such, and must not be misrepresented as
+ *    being the original software.
+ *
+ * 3. This notice may not be removed or altered from
+ *    any source distribution.
+ */
+ 
+var tinf;
+
+function JSUnzip() {
+
+    this.getInt = function(offset, size) {
+        switch (size) {
+        case 4:
+            return  (this.data.charCodeAt(offset + 3) & 0xff) << 24 | 
+                    (this.data.charCodeAt(offset + 2) & 0xff) << 16 | 
+                    (this.data.charCodeAt(offset + 1) & 0xff) << 8 | 
+                    (this.data.charCodeAt(offset + 0) & 0xff);
+            break;
+        case 2:
+            return  (this.data.charCodeAt(offset + 1) & 0xff) << 8 | 
+                    (this.data.charCodeAt(offset + 0) & 0xff);
+            break;
+        default:
+            return this.data.charCodeAt(offset) & 0xff;
+            break;
+        }
+    };
+
+    this.getDOSDate = function(dosdate, dostime) {
+        var day = dosdate & 0x1f;
+        var month = ((dosdate >> 5) & 0xf) - 1;
+        var year = 1980 + ((dosdate >> 9) & 0x7f)
+        var second = (dostime & 0x1f) * 2;
+        var minute = (dostime >> 5) & 0x3f;
+        hour = (dostime >> 11) & 0x1f;
+        return new Date(year, month, day, hour, minute, second);
+    }
+
+    this.open = function(data) {
+        this.data = data;
+        this.files = [];
+
+        if (this.data.length < 22)
+            return { 'status' : false, 'error' : 'Invalid data' };
+        var endOfCentralDirectory = this.data.length - 22;
+        while (endOfCentralDirectory >= 0 && this.getInt(endOfCentralDirectory, 4) != 0x06054b50)
+            --endOfCentralDirectory;
+        if (endOfCentralDirectory < 0)
+            return { 'status' : false, 'error' : 'Invalid data' };
+        if (this.getInt(endOfCentralDirectory + 4, 2) != 0 || this.getInt(endOfCentralDirectory + 6, 2) != 0)
+            return { 'status' : false, 'error' : 'No multidisk support' };
+
+        var entriesInThisDisk = this.getInt(endOfCentralDirectory + 8, 2);
+        var centralDirectoryOffset = this.getInt(endOfCentralDirectory + 16, 4);
+        var globalCommentLength = this.getInt(endOfCentralDirectory + 20, 2);
+        this.comment = this.data.slice(endOfCentralDirectory + 22, endOfCentralDirectory + 22 + globalCommentLength);
+
+        var fileOffset = centralDirectoryOffset;
+
+        for (var i = 0; i < entriesInThisDisk; ++i) {
+            if (this.getInt(fileOffset + 0, 4) != 0x02014b50)
+                return { 'status' : false, 'error' : 'Invalid data' };
+            if (this.getInt(fileOffset + 6, 2) > 20)
+                return { 'status' : false, 'error' : 'Unsupported version' };
+            if (this.getInt(fileOffset + 8, 2) & 1)
+                return { 'status' : false, 'error' : 'Encryption not implemented' };
+
+            var compressionMethod = this.getInt(fileOffset + 10, 2);
+            if (compressionMethod != 0 && compressionMethod != 8)
+                return { 'status' : false, 'error' : 'Unsupported compression method' };
+
+            var lastModFileTime = this.getInt(fileOffset + 12, 2);
+            var lastModFileDate = this.getInt(fileOffset + 14, 2);
+            var lastModifiedDate = this.getDOSDate(lastModFileDate, lastModFileTime);
+
+            var crc = this.getInt(fileOffset + 16, 4);
+            // TODO: crc
+
+            var compressedSize = this.getInt(fileOffset + 20, 4);
+            var uncompressedSize = this.getInt(fileOffset + 24, 4);
+
+            var fileNameLength = this.getInt(fileOffset + 28, 2);
+            var extraFieldLength = this.getInt(fileOffset + 30, 2);
+            var fileCommentLength = this.getInt(fileOffset + 32, 2);
+
+            var relativeOffsetOfLocalHeader = this.getInt(fileOffset + 42, 4);
+
+            var fileName = this.data.slice(fileOffset + 46, fileOffset + 46 + fileNameLength);
+            var fileComment = this.data.slice(fileOffset + 46 + fileNameLength + extraFieldLength, fileOffset + 46 + fileNameLength + extraFieldLength + fileCommentLength);
+
+            if (this.getInt(relativeOffsetOfLocalHeader + 0, 4) != 0x04034b50)
+                return { 'status' : false, 'error' : 'Invalid data' };
+            var localFileNameLength = this.getInt(relativeOffsetOfLocalHeader + 26, 2);
+            var localExtraFieldLength = this.getInt(relativeOffsetOfLocalHeader + 28, 2);
+            var localFileContent = relativeOffsetOfLocalHeader + 30 + localFileNameLength + localExtraFieldLength;
+
+            this.files[fileName] = 
+            {
+                'fileComment' : fileComment,
+                'compressionMethod' : compressionMethod,
+                'compressedSize' : compressedSize,
+                'uncompressedSize' : uncompressedSize,
+                'localFileContent' : localFileContent,
+                'lastModifiedDate' : lastModifiedDate
+            };
+
+            fileOffset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
+        }
+        return { 'status' : true }
+    };     
+    
+
+    this.read = function(fileName) {
+        var fileInfo = this.files[fileName];
+        if (fileInfo) {
+            if (fileInfo.compressionMethod == 8) {
+                if (!tinf) {
+                    tinf = new TINF();
+                    tinf.init();
+                }
+                var result = tinf.uncompress(this.data, fileInfo.localFileContent);
+                if (result.status == tinf.OK)
+                    return { 'status' : true, 'data' : result.data };
+                else
+                    return { 'status' : false, 'error' : result.error };
+            } else {
+                return { 'status' : true, 'data' : this.data.slice(fileInfo.localFileContent, fileInfo.localFileContent + fileInfo.uncompressedSize) };
+            }
+        }
+        return { 'status' : false, 'error' : "File '" + fileName + "' doesn't exist in zip" };
+    };
+    
+};
+
+
+
+/*
+ * tinflate  -  tiny inflate
+ *
+ * Copyright (c) 2003 by Joergen Ibsen / Jibz
+ * All Rights Reserved
+ *
+ * http://www.ibsensoftware.com/
+ *
+ * This software is provided 'as-is', without any express
+ * or implied warranty.  In no event will the authors be
+ * held liable for any damages arising from the use of
+ * this software.
+ *
+ * Permission is granted to anyone to use this software
+ * for any purpose, including commercial applications,
+ * and to alter it and redistribute it freely, subject to
+ * the following restrictions:
+ *
+ * 1. The origin of this software must not be
+ *    misrepresented; you must not claim that you
+ *    wrote the original software. If you use this
+ *    software in a product, an acknowledgment in
+ *    the product documentation would be appreciated
+ *    but is not required.
+ *
+ * 2. Altered source versions must be plainly marked
+ *    as such, and must not be misrepresented as
+ *    being the original software.
+ *
+ * 3. This notice may not be removed or altered from
+ *    any source distribution.
+ */
+
+/*
+ * tinflate javascript port by Erik Moller in May 2011.
+ * emoller@opera.com
+ * 
+ * read_bits() patched by mike@imidio.com to allow
+ * reading more then 8 bits (needed in some zlib streams)
+ */
+
+"use strict";
+
+function TINF() {
+    
+this.OK = 0;
+this.DATA_ERROR = (-3);
+this.WINDOW_SIZE = 32768;
+
+/* ------------------------------ *
+ * -- internal data structures -- *
+ * ------------------------------ */
+
+this.TREE = function() {
+   this.table = new Array(16);  /* table of code length counts */
+   this.trans = new Array(288); /* code -> symbol translation table */
+};
+
+this.DATA = function(that) {
+   this.source = '';
+   this.sourceIndex = 0;
+   this.tag = 0;
+   this.bitcount = 0;
+
+   this.dest = [];
+   
+   this.history = [];
+
+   this.ltree = new that.TREE(); /* dynamic length/symbol tree */
+   this.dtree = new that.TREE(); /* dynamic distance tree */
+};
+
+/* --------------------------------------------------- *
+ * -- uninitialized global data (static structures) -- *
+ * --------------------------------------------------- */
+
+this.sltree = new this.TREE(); /* fixed length/symbol tree */
+this.sdtree = new this.TREE(); /* fixed distance tree */
+
+/* extra bits and base tables for length codes */
+this.length_bits = new Array(30);
+this.length_base = new Array(30);
+
+/* extra bits and base tables for distance codes */
+this.dist_bits = new Array(30);
+this.dist_base = new Array(30);
+
+/* special ordering of code length codes */
+this.clcidx = [
+   16, 17, 18, 0, 8, 7, 9, 6,
+   10, 5, 11, 4, 12, 3, 13, 2,
+   14, 1, 15
+];
+
+/* ----------------------- *
+ * -- utility functions -- *
+ * ----------------------- */
+
+/* build extra bits and base tables */
+this.build_bits_base = function(bits, base, delta, first)
+{
+   var i, sum;
+
+   /* build bits table */
+   for (i = 0; i < delta; ++i) bits[i] = 0;
+   for (i = 0; i < 30 - delta; ++i) bits[i + delta] = Math.floor(i / delta);
+
+   /* build base table */
+   for (sum = first, i = 0; i < 30; ++i)
+   {
+      base[i] = sum;
+      sum += 1 << bits[i];
+   }
+}
+
+/* build the fixed huffman trees */
+this.build_fixed_trees = function(lt, dt)
+{
+   var i;
+
+   /* build fixed length tree */
+   for (i = 0; i < 7; ++i) lt.table[i] = 0;
+
+   lt.table[7] = 24;
+   lt.table[8] = 152;
+   lt.table[9] = 112;
+
+   for (i = 0; i < 24; ++i) lt.trans[i] = 256 + i;
+   for (i = 0; i < 144; ++i) lt.trans[24 + i] = i;
+   for (i = 0; i < 8; ++i) lt.trans[24 + 144 + i] = 280 + i;
+   for (i = 0; i < 112; ++i) lt.trans[24 + 144 + 8 + i] = 144 + i;
+
+   /* build fixed distance tree */
+   for (i = 0; i < 5; ++i) dt.table[i] = 0;
+
+   dt.table[5] = 32;
+
+   for (i = 0; i < 32; ++i) dt.trans[i] = i;
+}
+
+/* given an array of code lengths, build a tree */
+this.build_tree = function(t, lengths, loffset, num)
+{
+   var offs = new Array(16);
+   var i, sum;
+
+   /* clear code length count table */
+   for (i = 0; i < 16; ++i) t.table[i] = 0;
+
+   /* scan symbol lengths, and sum code length counts */
+   for (i = 0; i < num; ++i) t.table[lengths[loffset + i]]++;
+
+   t.table[0] = 0;
+
+   /* compute offset table for distribution sort */
+   for (sum = 0, i = 0; i < 16; ++i)
+   {
+      offs[i] = sum;
+      sum += t.table[i];
+   }
+
+   /* create code->symbol translation table (symbols sorted by code) */
+   for (i = 0; i < num; ++i)
+   {
+      if (lengths[loffset + i]) t.trans[offs[lengths[loffset + i]]++] = i;
+   }
+}
+
+/* ---------------------- *
+ * -- decode functions -- *
+ * ---------------------- */
+
+/* get one bit from source stream */
+this.getbit = function(d)
+{
+   var bit;
+
+   /* check if tag is empty */
+   if (!d.bitcount--)
+   {
+      /* load next tag */
+      d.tag = d.source[d.sourceIndex++] & 0xff;
+      d.bitcount = 7;
+   }
+
+   /* shift bit out of tag */
+   bit = d.tag & 0x01;
+   d.tag >>= 1;
+
+   return bit;
+}
+
+/* read a num bit value from a stream and add base */
+function read_bits_direct(source, bitcount, tag, idx, num)
+{
+    var val = 0;
+    while (bitcount < 24) {
+        tag = tag | (source[idx++] & 0xff) << bitcount;
+        bitcount += 8;
+    }
+    val = tag & (0xffff >> (16 - num));
+    tag >>= num;
+    bitcount -= num;
+    return [bitcount, tag, idx, val];
+}
+this.read_bits = function(d, num, base)
+{
+    if (!num)
+        return base;
+
+    var ret = read_bits_direct(d.source, d.bitcount, d.tag, d.sourceIndex, num);
+    d.bitcount = ret[0];
+    d.tag = ret[1];
+    d.sourceIndex = ret[2];
+    return ret[3] + base;
+}
+
+/* given a data stream and a tree, decode a symbol */
+this.decode_symbol = function(d, t)
+{
+    while (d.bitcount < 16) {
+        d.tag = d.tag | (d.source[d.sourceIndex++] & 0xff) << d.bitcount;
+        d.bitcount += 8;
+    }
+    
+    var sum = 0, cur = 0, len = 0;
+    do {
+        cur = 2 * cur + ((d.tag & (1 << len)) >> len);
+
+        ++len;
+
+        sum += t.table[len];
+        cur -= t.table[len];
+
+    } while (cur >= 0);
+
+    d.tag >>= len;
+    d.bitcount -= len;
+
+    return t.trans[sum + cur];
+}
+
+/* given a data stream, decode dynamic trees from it */
+this.decode_trees = function(d, lt, dt)
+{
+   var code_tree = new this.TREE();
+   var lengths = new Array(288+32);
+   var hlit, hdist, hclen;
+   var i, num, length;
+
+   /* get 5 bits HLIT (257-286) */
+   hlit = this.read_bits(d, 5, 257);
+
+   /* get 5 bits HDIST (1-32) */
+   hdist = this.read_bits(d, 5, 1);
+
+   /* get 4 bits HCLEN (4-19) */
+   hclen = this.read_bits(d, 4, 4);
+
+   for (i = 0; i < 19; ++i) lengths[i] = 0;
+
+   /* read code lengths for code length alphabet */
+   for (i = 0; i < hclen; ++i)
+   {
+      /* get 3 bits code length (0-7) */
+      var clen = this.read_bits(d, 3, 0);
+
+      lengths[this.clcidx[i]] = clen;
+   }
+
+   /* build code length tree */
+   this.build_tree(code_tree, lengths, 0, 19);
+
+   /* decode code lengths for the dynamic trees */
+   for (num = 0; num < hlit + hdist; )
+   {
+      var sym = this.decode_symbol(d, code_tree);
+
+      switch (sym)
+      {
+      case 16:
+         /* copy previous code length 3-6 times (read 2 bits) */
+         {
+            var prev = lengths[num - 1];
+            for (length = this.read_bits(d, 2, 3); length; --length)
+            {
+               lengths[num++] = prev;
+            }
+         }
+         break;
+      case 17:
+         /* repeat code length 0 for 3-10 times (read 3 bits) */
+         for (length = this.read_bits(d, 3, 3); length; --length)
+         {
+            lengths[num++] = 0;
+         }
+         break;
+      case 18:
+         /* repeat code length 0 for 11-138 times (read 7 bits) */
+         for (length = this.read_bits(d, 7, 11); length; --length)
+         {
+            lengths[num++] = 0;
+         }
+         break;
+      default:
+         /* values 0-15 represent the actual code lengths */
+         lengths[num++] = sym;
+         break;
+      }
+   }
+
+   /* build dynamic trees */
+   this.build_tree(lt, lengths, 0, hlit);
+   this.build_tree(dt, lengths, hlit, hdist);
+}
+
+/* ----------------------------- *
+ * -- block inflate functions -- *
+ * ----------------------------- */
+
+/* given a stream and two trees, inflate a block of data */
+this.inflate_block_data = function(d, lt, dt)
+{
+   // js optimization.
+   var ddest = d.dest;
+   var ddestlength = ddest.length;
+
+   while (1)
+   {
+      var sym = this.decode_symbol(d, lt);
+
+      /* check for end of block */
+      if (sym == 256)
+      {
+         return this.OK;
+      }
+
+      if (sym < 256)
+      {
+         ddest[ddestlength++] = sym; // ? String.fromCharCode(sym);
+         d.history.push(sym);
+      } else {
+
+         var length, dist, offs;
+         var i;
+
+         sym -= 257;
+
+         /* possibly get more bits from length code */
+         length = this.read_bits(d, this.length_bits[sym], this.length_base[sym]);
+
+         dist = this.decode_symbol(d, dt);
+
+         /* possibly get more bits from distance code */
+         offs = d.history.length - this.read_bits(d, this.dist_bits[dist], this.dist_base[dist]);
+
+         if (offs < 0)
+             throw ("Invalid zlib offset " + offs);
+         
+         /* copy match */
+         for (i = offs; i < offs + length; ++i) {
+            //ddest[ddestlength++] = ddest[i];
+            ddest[ddestlength++] = d.history[i];
+            d.history.push(d.history[i]);
+         }
+      }
+   }
+}
+
+/* inflate an uncompressed block of data */
+this.inflate_uncompressed_block = function(d)
+{
+   var length, invlength;
+   var i;
+
+   if (d.bitcount > 7) {
+       var overflow = Math.floor(d.bitcount / 8);
+       d.sourceIndex -= overflow;
+       d.bitcount = 0;
+       d.tag = 0;
+   }
+   
+   /* get length */
+   length = d.source[d.sourceIndex+1];
+   length = 256*length + d.source[d.sourceIndex];
+
+   /* get one's complement of length */
+   invlength = d.source[d.sourceIndex+3];
+   invlength = 256*invlength + d.source[d.sourceIndex+2];
+
+   /* check length */
+   if (length != (~invlength & 0x0000ffff)) return this.DATA_ERROR;
+
+   d.sourceIndex += 4;
+
+   /* copy block */
+   for (i = length; i; --i) {
+       d.history.push(d.source[d.sourceIndex]);
+       d.dest[d.dest.length] = d.source[d.sourceIndex++];
+   }
+
+   /* make sure we start next block on a byte boundary */
+   d.bitcount = 0;
+
+   return this.OK;
+}
+
+/* inflate a block of data compressed with fixed huffman trees */
+this.inflate_fixed_block = function(d)
+{
+   /* decode block using fixed trees */
+   return this.inflate_block_data(d, this.sltree, this.sdtree);
+}
+
+/* inflate a block of data compressed with dynamic huffman trees */
+this.inflate_dynamic_block = function(d)
+{
+   /* decode trees from stream */
+   this.decode_trees(d, d.ltree, d.dtree);
+
+   /* decode block using decoded trees */
+   return this.inflate_block_data(d, d.ltree, d.dtree);
+}
+
+/* ---------------------- *
+ * -- public functions -- *
+ * ---------------------- */
+
+/* initialize global (static) data */
+this.init = function()
+{
+   /* build fixed huffman trees */
+   this.build_fixed_trees(this.sltree, this.sdtree);
+
+   /* build extra bits and base tables */
+   this.build_bits_base(this.length_bits, this.length_base, 4, 3);
+   this.build_bits_base(this.dist_bits, this.dist_base, 2, 1);
+
+   /* fix a special case */
+   this.length_bits[28] = 0;
+   this.length_base[28] = 258;
+
+   this.reset();   
+}
+
+this.reset = function()
+{
+   this.d = new this.DATA(this);
+   delete this.header;
+}
+
+/* inflate stream from source to dest */
+this.uncompress = function(source, offset)
+{
+
+   var d = this.d;
+   var bfinal;
+
+   /* initialise data */
+   d.source = source;
+   d.sourceIndex = offset;
+   d.bitcount = 0;
+
+   d.dest = [];
+
+   // Skip zlib header at start of stream
+   if (typeof this.header == 'undefined') {
+       this.header = this.read_bits(d, 16, 0);
+       /* byte 0: 0x78, 7 = 32k window size, 8 = deflate */
+       /* byte 1: check bits for header and other flags */
+   }
+
+   var blocks = 0;
+   
+   do {
+
+      var btype;
+      var res;
+
+      /* read final block flag */
+      bfinal = this.getbit(d);
+
+      /* read block type (2 bits) */
+      btype = this.read_bits(d, 2, 0);
+
+      /* decompress block */
+      switch (btype)
+      {
+      case 0:
+         /* decompress uncompressed block */
+         res = this.inflate_uncompressed_block(d);
+         break;
+      case 1:
+         /* decompress block with fixed huffman trees */
+         res = this.inflate_fixed_block(d);
+         break;
+      case 2:
+         /* decompress block with dynamic huffman trees */
+         res = this.inflate_dynamic_block(d);
+         break;
+      default:
+         return { 'status' : this.DATA_ERROR };
+      }
+
+      if (res != this.OK) return { 'status' : this.DATA_ERROR };
+      blocks++;
+      
+   } while (!bfinal && d.sourceIndex < d.source.length);
+
+   d.history = d.history.slice(-this.WINDOW_SIZE);
+   
+   return { 'status' : this.OK, 'data' : d.dest };
+}
+
+};
 
 /*
  * noVNC: HTML5 VNC client
@@ -3653,24 +4091,23 @@ var RFB;
 
         // In preference order
         this._encodings = [
-            ['COPYRECT',            0x01 ],
-            ['TIGHT',               0x07 ],
-            ['TIGHT_PNG',           -260 ],
-            ['HEXTILE',             0x05 ],
-            ['RRE',                 0x02 ],
-            ['RAW',                 0x00 ],
-            ['DesktopSize',         -223 ],
-            ['Cursor',              -239 ],
+            ['COPYRECT',         0x01 ],
+            ['TIGHT',            0x07 ],
+            ['TIGHT_PNG',        -260 ],
+            ['HEXTILE',          0x05 ],
+            ['RRE',              0x02 ],
+            ['RAW',              0x00 ],
+            ['DesktopSize',      -223 ],
+            ['Cursor',           -239 ],
 
             // Psuedo-encoding settings
-            //['JPEG_quality_lo',    -32 ],
-            ['JPEG_quality_med',     -26 ],
-            //['JPEG_quality_hi',    -23 ],
-            //['compress_lo',       -255 ],
-            ['compress_hi',         -247 ],
-            ['last_rect',           -224 ],
-            ['xvp',                 -309 ],
-            ['ExtendedDesktopSize', -308 ]
+            //['JPEG_quality_lo',   -32 ],
+            ['JPEG_quality_med',    -26 ],
+            //['JPEG_quality_hi',   -23 ],
+            //['compress_lo',      -255 ],
+            ['compress_hi',        -247 ],
+            ['last_rect',          -224 ],
+            ['xvp',                -309 ]
         ];
 
         this._encHandlers = {};
@@ -3708,9 +4145,6 @@ var RFB;
         this._fb_height = 0;
         this._fb_name = "";
 
-        this._destBuff = null;
-        this._paletteBuff = new Uint8Array(1024);  // 256 * 4 (max palette size * max bytes-per-pixel)
-
         this._rre_chunk_sz = 100;
 
         this._timing = {
@@ -3726,16 +4160,11 @@ var RFB;
             pixels: 0
         };
 
-        this._supportsSetDesktopSize = false;
-        this._screen_id = 0;
-        this._screen_flags = 0;
-
         // Mouse state
         this._mouse_buttonMask = 0;
         this._mouse_arr = [];
         this._viewportDragging = false;
         this._viewportDragPos = {};
-        this._viewportHasMoved = false;
 
         // set the default value on user-facing properties
         Util.set_defaults(this, defaults, {
@@ -3748,7 +4177,7 @@ var RFB;
             'view_only': false,                     // Disable client mouse/keyboard
             'xvp_password_sep': '@',                // Separator for XVP password fields
             'disconnectTimeout': 3,                 // Time (s) to wait for disconnection
-            'wsProtocols': ['binary'],              // Protocols to use in the WebSocket connection
+            'wsProtocols': ['binary', 'base64'],    // Protocols to use in the WebSocket connection
             'repeaterID': '',                       // [UltraVNC] RepeaterID to connect to
             'viewportDrag': false,                  // Move the viewport on mouse drags
 
@@ -3779,13 +4208,11 @@ var RFB;
             this._encStats[this._encodings[i][1]] = [0, 0];
         }
 
-        // NB: nothing that needs explicit teardown should be done
-        // before this point, since this can throw an exception
         try {
             this._display = new Display({target: this._target});
         } catch (exc) {
             Util.Error("Display exception: " + exc);
-            throw exc;
+            this._updateState('fatal', "No working Display");
         }
 
         this._keyboard = new Keyboard({target: this._focusContainer,
@@ -3824,7 +4251,6 @@ var RFB;
             } else {
                 this._fail("Server disconnected" + msg);
             }
-            this._sock.off('close');
         }.bind(this));
         this._sock.on('error', function (e) {
             Util.Warn("WebSocket on-error event");
@@ -3837,8 +4263,14 @@ var RFB;
             Util.Info("Using native WebSockets");
             this._updateState('loaded', 'noVNC ready: native WebSockets, ' + rmode);
         } else {
-            this._cleanupSocket('fatal');
-            throw new Error("WebSocket support is required to use noVNC");
+            Util.Warn("Using web-socket-js bridge.  Flash version: " + Util.Flash.version);
+            if (!Util.Flash || Util.Flash.version < 9) {
+                this._updateState('fatal', "WebSockets or <a href='http://get.adobe.com/flashplayer'>Adobe Flash</a> is required");
+            } else if (document.location.href.substr(0, 7) === 'file://') {
+                this._updateState('fatal', "'file://' URL is incompatible with Adobe Flash");
+            } else {
+                this._updateState('loaded', 'noVNC ready: WebSockets emulation, ' + rmode);
+            }
         }
 
         Util.Debug("<< RFB.constructor");
@@ -3861,9 +4293,6 @@ var RFB;
 
         disconnect: function () {
             this._updateState('disconnect', 'Disconnecting');
-            this._sock.off('error');
-            this._sock.off('message');
-            this._sock.off('open');
         },
 
         sendPassword: function (passwd) {
@@ -3876,14 +4305,14 @@ var RFB;
             if (this._rfb_state !== 'normal' || this._view_only) { return false; }
             Util.Info("Sending Ctrl-Alt-Del");
 
-            RFB.messages.keyEvent(this._sock, XK_Control_L, 1);
-            RFB.messages.keyEvent(this._sock, XK_Alt_L, 1);
-            RFB.messages.keyEvent(this._sock, XK_Delete, 1);
-            RFB.messages.keyEvent(this._sock, XK_Delete, 0);
-            RFB.messages.keyEvent(this._sock, XK_Alt_L, 0);
-            RFB.messages.keyEvent(this._sock, XK_Control_L, 0);
-
-            this._sock.flush();
+            var arr = [];
+            arr = arr.concat(RFB.messages.keyEvent(XK_Control_L, 1));
+            arr = arr.concat(RFB.messages.keyEvent(XK_Alt_L, 1));
+            arr = arr.concat(RFB.messages.keyEvent(XK_Delete, 1));
+            arr = arr.concat(RFB.messages.keyEvent(XK_Delete, 0));
+            arr = arr.concat(RFB.messages.keyEvent(XK_Alt_L, 0));
+            arr = arr.concat(RFB.messages.keyEvent(XK_Control_L, 0));
+            this._sock.send(arr);
         },
 
         xvpOp: function (ver, op) {
@@ -3909,36 +4338,22 @@ var RFB;
         // followed by an up key.
         sendKey: function (code, down) {
             if (this._rfb_state !== "normal" || this._view_only) { return false; }
+            var arr = [];
             if (typeof down !== 'undefined') {
                 Util.Info("Sending key code (" + (down ? "down" : "up") + "): " + code);
-                RFB.messages.keyEvent(this._sock, code, down ? 1 : 0);
+                arr = arr.concat(RFB.messages.keyEvent(code, down ? 1 : 0));
             } else {
                 Util.Info("Sending key code (down + up): " + code);
-                RFB.messages.keyEvent(this._sock, code, 1);
-                RFB.messages.keyEvent(this._sock, code, 0);
+                arr = arr.concat(RFB.messages.keyEvent(code, 1));
+                arr = arr.concat(RFB.messages.keyEvent(code, 0));
             }
-
-            this._sock.flush();
+            this._sock.send(arr);
         },
 
         clipboardPasteFrom: function (text) {
             if (this._rfb_state !== 'normal') { return; }
-            RFB.messages.clientCutText(this._sock, text);
-            this._sock.flush();
+            this._sock.send(RFB.messages.clientCutText(text));
         },
-
-        // Requests a change of remote desktop size. This message is an extension
-        // and may only be sent if we have received an ExtendedDesktopSize message
-        requestDesktopSize: function (width, height) {
-            if (this._rfb_state !== "normal") { return; }
-
-            if (this._supportsSetDesktopSize) {
-                RFB.messages.setDesktopSize(this._sock, width, height,
-                                            this._screen_id, this._screen_flags);
-                this._sock.flush();
-            }
-        },
-
 
         // Private methods
 
@@ -3962,6 +4377,8 @@ var RFB;
 
         _init_vars: function () {
             // reset state
+            this._sock.init();
+
             this._FBU.rects        = 0;
             this._FBU.subrects     = 0;  // RRE and HEXTILE
             this._FBU.lines        = 0;  // RAW
@@ -3978,7 +4395,8 @@ var RFB;
             }
 
             for (i = 0; i < 4; i++) {
-                this._FBU.zlibs[i] = new inflator.Inflate();
+                this._FBU.zlibs[i] = new TINF();
+                this._FBU.zlibs[i].init();
             }
         },
 
@@ -3999,32 +4417,6 @@ var RFB;
             }
         },
 
-        _cleanupSocket: function (state) {
-            if (this._sendTimer) {
-                clearInterval(this._sendTimer);
-                this._sendTimer = null;
-            }
-
-            if (this._msgTimer) {
-                clearInterval(this._msgTimer);
-                this._msgTimer = null;
-            }
-
-            if (this._display && this._display.get_context()) {
-                this._keyboard.ungrab();
-                this._mouse.ungrab();
-                if (state !== 'connect' && state !== 'loaded') {
-                    this._display.defaultCursor();
-                }
-                if (Util.get_logging() !== 'debug' || state === 'loaded') {
-                    // Show noVNC logo on load and when disconnected, unless in
-                    // debug mode
-                    this._display.clear();
-                }
-            }
-
-            this._sock.close();
-        },
 
         /*
          * Page states:
@@ -4059,7 +4451,29 @@ var RFB;
              */
             if (state in {'disconnected': 1, 'loaded': 1, 'connect': 1,
                           'disconnect': 1, 'failed': 1, 'fatal': 1}) {
-                this._cleanupSocket(state);
+
+                if (this._sendTimer) {
+                    clearInterval(this._sendTimer);
+                    this._sendTimer = null;
+                }
+
+                if (this._msgTimer) {
+                    clearInterval(this._msgTimer);
+                    this._msgTimer = null;
+                }
+
+                if (this._display && this._display.get_context()) {
+                    this._keyboard.ungrab();
+                    this._mouse.ungrab();
+                    this._display.defaultCursor();
+                    if (Util.get_logging() !== 'debug' || state === 'loaded') {
+                        // Show noVNC logo on load and when disconnected, unless in
+                        // debug mode
+                        this._display.clear();
+                    }
+                }
+
+                this._sock.close();
             }
 
             if (oldstate === 'fatal') {
@@ -4085,7 +4499,6 @@ var RFB;
                 Util.Debug("Clearing disconnect timer");
                 clearTimeout(this._disconnTimer);
                 this._disconnTimer = null;
-                this._sock.off('close');  // make sure we don't get a double event
             }
 
             switch (state) {
@@ -4175,10 +4588,16 @@ var RFB;
             }
         },
 
+        _checkEvents: function () {
+            if (this._rfb_state === 'normal' && !this._viewportDragging && this._mouse_arr.length > 0) {
+                this._sock.send(this._mouse_arr);
+                this._mouse_arr = [];
+            }
+        },
+
         _handleKeyPress: function (keysym, down) {
             if (this._view_only) { return; } // View only, skip keyboard, events
-            RFB.messages.keyEvent(this._sock, keysym, down);
-            this._sock.flush();
+            this._sock.send(RFB.messages.keyEvent(keysym, down));
         },
 
         _handleMouseButton: function (x, y, down, bmask) {
@@ -4197,38 +4616,24 @@ var RFB;
                     return;
                 } else {
                     this._viewportDragging = false;
-
-                    // If the viewport didn't actually move, then treat as a mouse click event
-                    // Send the button down event here, as the button up event is sent at the end of this function
-                    if (!this._viewportHasMoved && !this._view_only) {
-                        RFB.messages.pointerEvent(this._sock, this._display.absX(x), this._display.absY(y), bmask);
-                    }
-                    this._viewportHasMoved = false;
                 }
             }
 
             if (this._view_only) { return; } // View only, skip mouse events
 
-            if (this._rfb_state !== "normal") { return; }
-            RFB.messages.pointerEvent(this._sock, this._display.absX(x), this._display.absY(y), this._mouse_buttonMask);
+            this._mouse_arr = this._mouse_arr.concat(
+                    RFB.messages.pointerEvent(this._display.absX(x), this._display.absY(y), this._mouse_buttonMask));
+            this._sock.send(this._mouse_arr);
+            this._mouse_arr = [];
         },
 
         _handleMouseMove: function (x, y) {
             if (this._viewportDragging) {
                 var deltaX = this._viewportDragPos.x - x;
                 var deltaY = this._viewportDragPos.y - y;
+                this._viewportDragPos = {'x': x, 'y': y};
 
-                // The goal is to trigger on a certain physical width, the
-                // devicePixelRatio brings us a bit closer but is not optimal.
-                var dragThreshold = 10 * (window.devicePixelRatio || 1);
-
-                if (this._viewportHasMoved || (Math.abs(deltaX) > dragThreshold ||
-                                               Math.abs(deltaY) > dragThreshold)) {
-                    this._viewportHasMoved = true;
-
-                    this._viewportDragPos = {'x': x, 'y': y};
-                    this._display.viewportChangePos(deltaX, deltaY);
-                }
+                this._display.viewportChange(deltaX, deltaY);
 
                 // Skip sending mouse events
                 return;
@@ -4236,8 +4641,10 @@ var RFB;
 
             if (this._view_only) { return; } // View only, skip mouse events
 
-            if (this._rfb_state !== "normal") { return; }
-            RFB.messages.pointerEvent(this._sock, this._display.absX(x), this._display.absY(y), this._mouse_buttonMask);
+            this._mouse_arr = this._mouse_arr.concat(
+                    RFB.messages.pointerEvent(this._display.absX(x), this._display.absY(y), this._mouse_buttonMask));
+
+            this._checkEvents();
         },
 
         // Message Handlers
@@ -4357,13 +4764,11 @@ var RFB;
                 // an RFB state change and a UI interface issue
                 this._updateState('password', "Password Required");
                 this._onPasswordRequired(this);
-                return false;
             }
 
             if (this._sock.rQwait("auth challenge", 16)) { return false; }
 
-            // TODO(directxman12): make genDES not require an Array
-            var challenge = Array.prototype.slice.call(this._sock.rQshiftBytes(16));
+            var challenge = this._sock.rQshiftBytes(16);
             var response = RFB.genDES(this._rfb_password, challenge);
             this._sock.send(response);
             this._updateState("SecurityResult");
@@ -4505,7 +4910,6 @@ var RFB;
             /* Screen size */
             this._fb_width  = this._sock.rQshift16();
             this._fb_height = this._sock.rQshift16();
-            this._destBuff = new Uint8Array(this._fb_width * this._fb_height * 4);
 
             /* PIXEL_FORMAT */
             var bpp         = this._sock.rQshift8();
@@ -4540,17 +4944,18 @@ var RFB;
                 var totalMessagesLength = (numServerMessages + numClientMessages + numEncodings) * 16;
                 if (this._sock.rQwait('TightVNC extended server init header', totalMessagesLength, 32 + name_length)) { return false; }
 
-                // we don't actually do anything with the capability information that TIGHT sends,
-                // so we just skip the all of this.
+                var i;
+                for (i = 0; i < numServerMessages; i++) {
+                    var srvMsg = this._sock.rQshiftStr(16);
+                }
 
-                // TIGHT server message capabilities
-                this._sock.rQskipBytes(16 * numServerMessages);
+                for (i = 0; i < numClientMessages; i++) {
+                    var clientMsg = this._sock.rQshiftStr(16);
+                }
 
-                // TIGHT client message capabilities
-                this._sock.rQskipBytes(16 * numClientMessages);
-
-                // TIGHT encoding capabilities
-                this._sock.rQskipBytes(16 * numEncodings);
+                for (i = 0; i < numEncodings; i++) {
+                    var encoding = this._sock.rQshiftStr(16);
+                }
             }
 
             // NB(directxman12): these are down here so that we don't run them multiple times
@@ -4587,8 +4992,8 @@ var RFB;
             }
 
             this._display.set_true_color(this._true_color);
-            this._display.resize(this._fb_width, this._fb_height);
             this._onFBResize(this, this._fb_width, this._fb_height);
+            this._display.resize(this._fb_width, this._fb_height);
             this._keyboard.grab();
             this._mouse.grab();
 
@@ -4600,13 +5005,18 @@ var RFB;
                 this._fb_depth = 1;
             }
 
-            RFB.messages.pixelFormat(this._sock, this._fb_Bpp, this._fb_depth, this._true_color);
-            RFB.messages.clientEncodings(this._sock, this._encodings, this._local_cursor, this._true_color);
-            RFB.messages.fbUpdateRequests(this._sock, this._display.getCleanDirtyReset(), this._fb_width, this._fb_height);
+            var response = RFB.messages.pixelFormat(this._fb_Bpp, this._fb_depth, this._true_color);
+            response = response.concat(
+                            RFB.messages.clientEncodings(this._encodings, this._local_cursor, this._true_color));
+            response = response.concat(
+                            RFB.messages.fbUpdateRequests(this._display.getCleanDirtyReset(),
+                                                          this._fb_width, this._fb_height));
 
             this._timing.fbu_rt_start = (new Date()).getTime();
             this._timing.pixels = 0;
-            this._sock.flush();
+            this._sock.send(response);
+
+            this._checkEvents();
 
             if (this._encrypt) {
                 this._updateState('normal', 'Connected (encrypted) to: ' + this._fb_name);
@@ -4708,8 +5118,8 @@ var RFB;
                 case 0:  // FramebufferUpdate
                     var ret = this._framebufferUpdate();
                     if (ret) {
-                        RFB.messages.fbUpdateRequests(this._sock, this._display.getCleanDirtyReset(), this._fb_width, this._fb_height);
-                        this._sock.flush();
+                        this._sock.send(RFB.messages.fbUpdateRequests(this._display.getCleanDirtyReset(),
+                                                                      this._fb_width, this._fb_height));
                     }
                     return ret;
 
@@ -4781,14 +5191,7 @@ var RFB;
 
                 this._timing.last_fbu = (new Date()).getTime();
 
-                var handler = this._encHandlers[this._FBU.encoding];
-                try {
-                    //ret = this._encHandlers[this._FBU.encoding]();
-                    ret = handler();
-                } catch (ex)  {
-                    console.log("missed " + this._FBU.encoding + ": " + handler);
-                    ret = this._encHandlers[this._FBU.encoding]();
-                }
+                ret = this._encHandlers[this._FBU.encoding]();
 
                 now = (new Date()).getTime();
                 this._timing.cur_fbu += (now - this._timing.last_fbu);
@@ -4866,13 +5269,11 @@ var RFB;
     RFB.prototype.set_local_cursor = function (cursor) {
         if (!cursor || (cursor in {'0': 1, 'no': 1, 'false': 1})) {
             this._local_cursor = false;
-            this._display.disableLocalCursor(); //Only show server-side cursor
         } else {
             if (this._display.get_cursor_uri()) {
                 this._local_cursor = true;
             } else {
                 Util.Warn("Browser does not support local cursor");
-                this._display.disableLocalCursor();
             }
         }
     };
@@ -4883,146 +5284,64 @@ var RFB;
 
     // Class Methods
     RFB.messages = {
-        keyEvent: function (sock, keysym, down) {
-            var buff = sock._sQ;
-            var offset = sock._sQlen;
-
-            buff[offset] = 4;  // msg-type
-            buff[offset + 1] = down;
-
-            buff[offset + 2] = 0;
-            buff[offset + 3] = 0;
-
-            buff[offset + 4] = (keysym >> 24);
-            buff[offset + 5] = (keysym >> 16);
-            buff[offset + 6] = (keysym >> 8);
-            buff[offset + 7] = keysym;
-
-            sock._sQlen += 8;
+        keyEvent: function (keysym, down) {
+            var arr = [4];
+            arr.push8(down);
+            arr.push16(0);
+            arr.push32(keysym);
+            return arr;
         },
 
-        pointerEvent: function (sock, x, y, mask) {
-            var buff = sock._sQ;
-            var offset = sock._sQlen;
-
-            buff[offset] = 5; // msg-type
-
-            buff[offset + 1] = mask;
-
-            buff[offset + 2] = x >> 8;
-            buff[offset + 3] = x;
-
-            buff[offset + 4] = y >> 8;
-            buff[offset + 5] = y;
-
-            sock._sQlen += 6;
+        pointerEvent: function (x, y, mask) {
+            var arr = [5];  // msg-type
+            arr.push8(mask);
+            arr.push16(x);
+            arr.push16(y);
+            return arr;
         },
 
         // TODO(directxman12): make this unicode compatible?
-        clientCutText: function (sock, text) {
-            var buff = sock._sQ;
-            var offset = sock._sQlen;
-
-            buff[offset] = 6; // msg-type
-
-            buff[offset + 1] = 0; // padding
-            buff[offset + 2] = 0; // padding
-            buff[offset + 3] = 0; // padding
-
+        clientCutText: function (text) {
+            var arr = [6];  // msg-type
+            arr.push8(0);   // padding
+            arr.push8(0);   // padding
+            arr.push8(0);   // padding
+            arr.push32(text.length);
             var n = text.length;
-
-            buff[offset + 4] = n >> 24;
-            buff[offset + 5] = n >> 16;
-            buff[offset + 6] = n >> 8;
-            buff[offset + 7] = n;
-
             for (var i = 0; i < n; i++) {
-                buff[offset + 8 + i] =  text.charCodeAt(i);
+                arr.push(text.charCodeAt(i));
             }
 
-            sock._sQlen += 8 + n;
+            return arr;
         },
 
-        setDesktopSize: function (sock, width, height, id, flags) {
-            var buff = sock._sQ;
-            var offset = sock._sQlen;
+        pixelFormat: function (bpp, depth, true_color) {
+            var arr = [0]; // msg-type
+            arr.push8(0);  // padding
+            arr.push8(0);  // padding
+            arr.push8(0);  // padding
 
-            buff[offset] = 251;              // msg-type
-            buff[offset + 1] = 0;            // padding
-            buff[offset + 2] = width >> 8;   // width
-            buff[offset + 3] = width;
-            buff[offset + 4] = height >> 8;  // height
-            buff[offset + 5] = height;
+            arr.push8(bpp * 8); // bits-per-pixel
+            arr.push8(depth * 8); // depth
+            arr.push8(0);  // little-endian
+            arr.push8(true_color ? 1 : 0);  // true-color
 
-            buff[offset + 6] = 1;            // number-of-screens
-            buff[offset + 7] = 0;            // padding
+            arr.push16(255);  // red-max
+            arr.push16(255);  // green-max
+            arr.push16(255);  // blue-max
+            arr.push8(16);    // red-shift
+            arr.push8(8);     // green-shift
+            arr.push8(0);     // blue-shift
 
-            // screen array
-            buff[offset + 8] = id >> 24;     // id
-            buff[offset + 9] = id >> 16;
-            buff[offset + 10] = id >> 8;
-            buff[offset + 11] = id;
-            buff[offset + 12] = 0;           // x-position
-            buff[offset + 13] = 0;
-            buff[offset + 14] = 0;           // y-position
-            buff[offset + 15] = 0;
-            buff[offset + 16] = width >> 8;  // width
-            buff[offset + 17] = width;
-            buff[offset + 18] = height >> 8; // height
-            buff[offset + 19] = height;
-            buff[offset + 20] = flags >> 24; // flags
-            buff[offset + 21] = flags >> 16;
-            buff[offset + 22] = flags >> 8;
-            buff[offset + 23] = flags;
-
-            sock._sQlen += 24;
+            arr.push8(0);     // padding
+            arr.push8(0);     // padding
+            arr.push8(0);     // padding
+            return arr;
         },
 
-        pixelFormat: function (sock, bpp, depth, true_color) {
-            var buff = sock._sQ;
-            var offset = sock._sQlen;
+        clientEncodings: function (encodings, local_cursor, true_color) {
+            var i, encList = [];
 
-            buff[offset] = 0;  // msg-type
-
-            buff[offset + 1] = 0; // padding
-            buff[offset + 2] = 0; // padding
-            buff[offset + 3] = 0; // padding
-
-            buff[offset + 4] = bpp * 8;             // bits-per-pixel
-            buff[offset + 5] = depth * 8;           // depth
-            buff[offset + 6] = 0;                   // little-endian
-            buff[offset + 7] = true_color ? 1 : 0;  // true-color
-
-            buff[offset + 8] = 0;    // red-max
-            buff[offset + 9] = 255;  // red-max
-
-            buff[offset + 10] = 0;   // green-max
-            buff[offset + 11] = 255; // green-max
-
-            buff[offset + 12] = 0;   // blue-max
-            buff[offset + 13] = 255; // blue-max
-
-            buff[offset + 14] = 16;  // red-shift
-            buff[offset + 15] = 8;   // green-shift
-            buff[offset + 16] = 0;   // blue-shift
-
-            buff[offset + 17] = 0;   // padding
-            buff[offset + 18] = 0;   // padding
-            buff[offset + 19] = 0;   // padding
-
-            sock._sQlen += 20;
-        },
-
-        clientEncodings: function (sock, encodings, local_cursor, true_color) {
-            var buff = sock._sQ;
-            var offset = sock._sQlen;
-
-            buff[offset] = 2; // msg-type
-            buff[offset + 1] = 0; // padding
-
-            // offset + 2 and offset + 3 are encoding count
-
-            var i, j = offset + 4, cnt = 0;
             for (i = 0; i < encodings.length; i++) {
                 if (encodings[i][0] === "Cursor" && !local_cursor) {
                     Util.Debug("Skipping Cursor pseudo-encoding");
@@ -5030,25 +5349,23 @@ var RFB;
                     // TODO: remove this when we have tight+non-true-color
                     Util.Warn("Skipping tight as it is only supported with true color");
                 } else {
-                    var enc = encodings[i][1];
-                    buff[j] = enc >> 24;
-                    buff[j + 1] = enc >> 16;
-                    buff[j + 2] = enc >> 8;
-                    buff[j + 3] = enc;
-
-                    j += 4;
-                    cnt++;
+                    encList.push(encodings[i][1]);
                 }
             }
 
-            buff[offset + 2] = cnt >> 8;
-            buff[offset + 3] = cnt;
+            var arr = [2];  // msg-type
+            arr.push8(0);   // padding
 
-            sock._sQlen += j - offset;
+            arr.push16(encList.length);  // encoding count
+            for (i = 0; i < encList.length; i++) {
+                arr.push32(encList[i]);
+            }
+
+            return arr;
         },
 
-        fbUpdateRequests: function (sock, cleanDirty, fb_width, fb_height) {
-            var offsetIncrement = 0;
+        fbUpdateRequests: function (cleanDirty, fb_width, fb_height) {
+            var arr = [];
 
             var cb = cleanDirty.cleanBox;
             var w, h;
@@ -5056,7 +5373,7 @@ var RFB;
                 w = typeof cb.w === "undefined" ? fb_width : cb.w;
                 h = typeof cb.h === "undefined" ? fb_height : cb.h;
                 // Request incremental for clean box
-                RFB.messages.fbUpdateRequest(sock, 1, cb.x, cb.y, w, h);
+                arr = arr.concat(RFB.messages.fbUpdateRequest(1, cb.x, cb.y, w, h));
             }
 
             for (var i = 0; i < cleanDirty.dirtyBoxes.length; i++) {
@@ -5064,33 +5381,24 @@ var RFB;
                 // Force all (non-incremental) for dirty box
                 w = typeof db.w === "undefined" ? fb_width : db.w;
                 h = typeof db.h === "undefined" ? fb_height : db.h;
-                RFB.messages.fbUpdateRequest(sock, 0, db.x, db.y, w, h);
+                arr = arr.concat(RFB.messages.fbUpdateRequest(0, db.x, db.y, w, h));
             }
+
+            return arr;
         },
 
-        fbUpdateRequest: function (sock, incremental, x, y, w, h) {
-            var buff = sock._sQ;
-            var offset = sock._sQlen;
-
+        fbUpdateRequest: function (incremental, x, y, w, h) {
             if (typeof(x) === "undefined") { x = 0; }
             if (typeof(y) === "undefined") { y = 0; }
 
-            buff[offset] = 3;  // msg-type
-            buff[offset + 1] = incremental;
+            var arr = [3];  // msg-type
+            arr.push8(incremental);
+            arr.push16(x);
+            arr.push16(y);
+            arr.push16(w);
+            arr.push16(h);
 
-            buff[offset + 2] = (x >> 8) & 0xFF;
-            buff[offset + 3] = x & 0xFF;
-
-            buff[offset + 4] = (y >> 8) & 0xFF;
-            buff[offset + 5] = y & 0xFF;
-
-            buff[offset + 6] = (w >> 8) & 0xFF;
-            buff[offset + 7] = w & 0xFF;
-
-            buff[offset + 8] = (h >> 8) & 0xFF;
-            buff[offset + 9] = h & 0xFF;
-
-            sock._sQlen += 10;
+            return arr;
         }
     };
 
@@ -5136,10 +5444,15 @@ var RFB;
         COPYRECT: function () {
             this._FBU.bytes = 4;
             if (this._sock.rQwait("COPYRECT", 4)) { return false; }
-            this._display.copyImage(this._sock.rQshift16(), this._sock.rQshift16(),
-                                    this._FBU.x, this._FBU.y, this._FBU.width,
-                                    this._FBU.height);
-
+            this._display.renderQ_push({
+                'type': 'copy',
+                'old_x': this._sock.rQshift16(),
+                'old_y': this._sock.rQshift16(),
+                'x': this._FBU.x,
+                'y': this._FBU.y,
+                'width': this._FBU.width,
+                'height': this._FBU.height
+            });
             this._FBU.rects--;
             this._FBU.bytes = 0;
             return true;
@@ -5244,21 +5557,11 @@ var RFB;
                     rQi += this._FBU.bytes - 1;
                 } else {
                     if (this._FBU.subencoding & 0x02) {  // Background
-                        if (this._fb_Bpp == 1) {
-                            this._FBU.background = rQ[rQi];
-                        } else {
-                            // fb_Bpp is 4
-                            this._FBU.background = [rQ[rQi], rQ[rQi + 1], rQ[rQi + 2], rQ[rQi + 3]];
-                        }
+                        this._FBU.background = rQ.slice(rQi, rQi + this._fb_Bpp);
                         rQi += this._fb_Bpp;
                     }
                     if (this._FBU.subencoding & 0x04) {  // Foreground
-                        if (this._fb_Bpp == 1) {
-                            this._FBU.foreground = rQ[rQi];
-                        } else {
-                            // this._fb_Bpp is 4
-                            this._FBU.foreground = [rQ[rQi], rQ[rQi + 1], rQ[rQi + 2], rQ[rQi + 3]];
-                        }
+                        this._FBU.foreground = rQ.slice(rQi, rQi + this._fb_Bpp);
                         rQi += this._fb_Bpp;
                     }
 
@@ -5270,12 +5573,7 @@ var RFB;
                         for (var s = 0; s < subrects; s++) {
                             var color;
                             if (this._FBU.subencoding & 0x10) {  // SubrectsColoured
-                                if (this._fb_Bpp === 1) {
-                                    color = rQ[rQi];
-                                } else {
-                                    // _fb_Bpp is 4
-                                    color = [rQ[rQi], rQ[rQi + 1], rQ[rQi + 2], rQ[rQi + 3]];
-                                }
+                                color = rQ.slice(rQi, rQi + this._fb_Bpp);
                                 rQi += this._fb_Bpp;
                             } else {
                                 color = this._FBU.foreground;
@@ -5341,105 +5639,69 @@ var RFB;
 
             var resetStreams = 0;
             var streamId = -1;
-            var decompress = function (data, expected) {
+            var decompress = function (data) {
                 for (var i = 0; i < 4; i++) {
                     if ((resetStreams >> i) & 1) {
                         this._FBU.zlibs[i].reset();
-                        console.debug('RESET!');
                         Util.Info("Reset zlib stream " + i);
                     }
                 }
 
-                //var uncompressed = this._FBU.zlibs[streamId].uncompress(data, 0);
-                var uncompressed = this._FBU.zlibs[streamId].inflate(data, true, expected);
-                /*if (uncompressed.status !== 0) {
+                var uncompressed = this._FBU.zlibs[streamId].uncompress(data, 0);
+                if (uncompressed.status !== 0) {
                     Util.Error("Invalid data in zlib stream");
-                }*/
+                }
 
-                //return uncompressed.data;
-                return uncompressed;
+                return uncompressed.data;
             }.bind(this);
 
-            var indexedToRGBX2Color = function (data, palette, width, height) {
+            var indexedToRGB = function (data, numColors, palette, width, height) {
                 // Convert indexed (palette based) image data to RGB
                 // TODO: reduce number of calculations inside loop
-                var dest = this._destBuff;
-                var w = Math.floor((width + 7) / 8);
-                var w1 = Math.floor(width / 8);
+                var dest = [];
+                var x, y, dp, sp;
+                if (numColors === 2) {
+                    var w = Math.floor((width + 7) / 8);
+                    var w1 = Math.floor(width / 8);
 
-                /*for (var y = 0; y < height; y++) {
-                    var b, x, dp, sp;
-                    var yoffset = y * width;
-                    var ybitoffset = y * w;
-                    var xoffset, targetbyte;
-                    for (x = 0; x < w1; x++) {
-                        xoffset = yoffset + x * 8;
-                        targetbyte = data[ybitoffset + x];
-                        for (b = 7; b >= 0; b--) {
-                            dp = (xoffset + 7 - b) * 3;
-                            sp = (targetbyte >> b & 1) * 3;
-                            dest[dp] = palette[sp];
-                            dest[dp + 1] = palette[sp + 1];
-                            dest[dp + 2] = palette[sp + 2];
+                    for (y = 0; y < height; y++) {
+                        var b;
+                        for (x = 0; x < w1; x++) {
+                            for (b = 7; b >= 0; b--) {
+                                dp = (y * width + x * 8 + 7 - b) * 3;
+                                sp = (data[y * w + x] >> b & 1) * 3;
+                                dest[dp] = palette[sp];
+                                dest[dp + 1] = palette[sp + 1];
+                                dest[dp + 2] = palette[sp + 2];
+                            }
                         }
-                    }
 
-                    xoffset = yoffset + x * 8;
-                    targetbyte = data[ybitoffset + x];
-                    for (b = 7; b >= 8 - width % 8; b--) {
-                        dp = (xoffset + 7 - b) * 3;
-                        sp = (targetbyte >> b & 1) * 3;
-                        dest[dp] = palette[sp];
-                        dest[dp + 1] = palette[sp + 1];
-                        dest[dp + 2] = palette[sp + 2];
-                    }
-                }*/
-
-                for (var y = 0; y < height; y++) {
-                    var b, x, dp, sp;
-                    for (x = 0; x < w1; x++) {
-                        for (b = 7; b >= 0; b--) {
-                            dp = (y * width + x * 8 + 7 - b) * 4;
+                        for (b = 7; b >= 8 - width % 8; b--) {
+                            dp = (y * width + x * 8 + 7 - b) * 3;
                             sp = (data[y * w + x] >> b & 1) * 3;
                             dest[dp] = palette[sp];
                             dest[dp + 1] = palette[sp + 1];
                             dest[dp + 2] = palette[sp + 2];
-                            dest[dp + 3] = 255;
                         }
                     }
-
-                    for (b = 7; b >= 8 - width % 8; b--) {
-                        dp = (y * width + x * 8 + 7 - b) * 4;
-                        sp = (data[y * w + x] >> b & 1) * 3;
-                        dest[dp] = palette[sp];
-                        dest[dp + 1] = palette[sp + 1];
-                        dest[dp + 2] = palette[sp + 2];
-                        dest[dp + 3] = 255;
+                } else {
+                    for (y = 0; y < height; y++) {
+                        for (x = 0; x < width; x++) {
+                            dp = (y * width + x) * 3;
+                            sp = data[y * width + x] * 3;
+                            dest[dp] = palette[sp];
+                            dest[dp + 1] = palette[sp + 1];
+                            dest[dp + 2] = palette[sp + 2];
+                        }
                     }
                 }
 
                 return dest;
             }.bind(this);
 
-            var indexedToRGBX = function (data, palette, width, height) {
-                // Convert indexed (palette based) image data to RGB
-                var dest = this._destBuff;
-                var total = width * height * 4;
-                for (var i = 0, j = 0; i < total; i += 4, j++) {
-                    var sp = data[j] * 3;
-                    dest[i] = palette[sp];
-                    dest[i + 1] = palette[sp + 1];
-                    dest[i + 2] = palette[sp + 2];
-                    dest[i + 3] = 255;
-                }
-
-                return dest;
-            }.bind(this);
-
+            var rQ = this._sock.get_rQ();
             var rQi = this._sock.get_rQi();
-            var rQ = this._sock.rQwhole();
-            var cmode, data;
-            var cl_header, cl_data;
+            var cmode, clength, data;
 
             var handlePalette = function () {
                 var numColors = rQ[rQi + 2] + 1;
@@ -5452,51 +5714,37 @@ var RFB;
                 var raw = false;
                 if (rowSize * this._FBU.height < 12) {
                     raw = true;
-                    cl_header = 0;
-                    cl_data = rowSize * this._FBU.height;
-                    //clength = [0, rowSize * this._FBU.height];
+                    clength = [0, rowSize * this._FBU.height];
                 } else {
-                    // begin inline getTightCLength (returning two-item arrays is bad for performance with GC)
-                    var cl_offset = rQi + 3 + paletteSize;
-                    cl_header = 1;
-                    cl_data = 0;
-                    cl_data += rQ[cl_offset] & 0x7f;
-                    if (rQ[cl_offset] & 0x80) {
-                        cl_header++;
-                        cl_data += (rQ[cl_offset + 1] & 0x7f) << 7;
-                        if (rQ[cl_offset + 1] & 0x80) {
-                            cl_header++;
-                            cl_data += rQ[cl_offset + 2] << 14;
-                        }
-                    }
-                    // end inline getTightCLength
+                    clength = RFB.encodingHandlers.getTightCLength(this._sock.rQslice(3 + paletteSize,
+                                                                                      3 + paletteSize + 3));
                 }
 
-                this._FBU.bytes += cl_header + cl_data;
+                this._FBU.bytes += clength[0] + clength[1];
                 if (this._sock.rQwait("TIGHT " + cmode, this._FBU.bytes)) { return false; }
 
                 // Shift ctl, filter id, num colors, palette entries, and clength off
                 this._sock.rQskipBytes(3);
-                //var palette = this._sock.rQshiftBytes(paletteSize);
-                this._sock.rQshiftTo(this._paletteBuff, paletteSize);
-                this._sock.rQskipBytes(cl_header);
+                var palette = this._sock.rQshiftBytes(paletteSize);
+                this._sock.rQskipBytes(clength[0]);
 
                 if (raw) {
-                    data = this._sock.rQshiftBytes(cl_data);
+                    data = this._sock.rQshiftBytes(clength[1]);
                 } else {
-                    data = decompress(this._sock.rQshiftBytes(cl_data), rowSize * this._FBU.height);
+                    data = decompress(this._sock.rQshiftBytes(clength[1]));
                 }
 
                 // Convert indexed (palette based) image data to RGB
-                var rgbx;
-                if (numColors == 2) {
-                    rgbx = indexedToRGBX2Color(data, this._paletteBuff, this._FBU.width, this._FBU.height);
-                    this._display.blitRgbxImage(this._FBU.x, this._FBU.y, this._FBU.width, this._FBU.height, rgbx, 0, false);
-                } else {
-                    rgbx = indexedToRGBX(data, this._paletteBuff, this._FBU.width, this._FBU.height);
-                    this._display.blitRgbxImage(this._FBU.x, this._FBU.y, this._FBU.width, this._FBU.height, rgbx, 0, false);
-                }
+                var rgb = indexedToRGB(data, numColors, palette, this._FBU.width, this._FBU.height);
 
+                this._display.renderQ_push({
+                    'type': 'blitRgb',
+                    'data': rgb,
+                    'x': this._FBU.x,
+                    'y': this._FBU.y,
+                    'width': this._FBU.width,
+                    'height': this._FBU.height
+                });
 
                 return true;
             }.bind(this);
@@ -5506,37 +5754,30 @@ var RFB;
                 var uncompressedSize = this._FBU.width * this._FBU.height * this._fb_depth;
                 if (uncompressedSize < 12) {
                     raw = true;
-                    cl_header = 0;
-                    cl_data = uncompressedSize;
+                    clength = [0, uncompressedSize];
                 } else {
-                    // begin inline getTightCLength (returning two-item arrays is for peformance with GC)
-                    var cl_offset = rQi + 1;
-                    cl_header = 1;
-                    cl_data = 0;
-                    cl_data += rQ[cl_offset] & 0x7f;
-                    if (rQ[cl_offset] & 0x80) {
-                        cl_header++;
-                        cl_data += (rQ[cl_offset + 1] & 0x7f) << 7;
-                        if (rQ[cl_offset + 1] & 0x80) {
-                            cl_header++;
-                            cl_data += rQ[cl_offset + 2] << 14;
-                        }
-                    }
-                    // end inline getTightCLength
+                    clength = RFB.encodingHandlers.getTightCLength(this._sock.rQslice(1, 4));
                 }
-                this._FBU.bytes = 1 + cl_header + cl_data;
+                this._FBU.bytes = 1 + clength[0] + clength[1];
                 if (this._sock.rQwait("TIGHT " + cmode, this._FBU.bytes)) { return false; }
 
                 // Shift ctl, clength off
-                this._sock.rQshiftBytes(1 + cl_header);
+                this._sock.rQshiftBytes(1 + clength[0]);
 
                 if (raw) {
-                    data = this._sock.rQshiftBytes(cl_data);
+                    data = this._sock.rQshiftBytes(clength[1]);
                 } else {
-                    data = decompress(this._sock.rQshiftBytes(cl_data), uncompressedSize);
+                    data = decompress(this._sock.rQshiftBytes(clength[1]));
                 }
 
-                this._display.blitRgbImage(this._FBU.x, this._FBU.y, this._FBU.width, this._FBU.height, data, 0, false);
+                this._display.renderQ_push({
+                    'type': 'blitRgb',
+                    'data': data,
+                    'x': this._FBU.x,
+                    'y': this._FBU.y,
+                    'width': this._FBU.width,
+                    'height': this._FBU.height
+                });
 
                 return true;
             }.bind(this);
@@ -5584,34 +5825,28 @@ var RFB;
             // Determine FBU.bytes
             switch (cmode) {
                 case "fill":
-                    // skip ctl byte
-                    this._display.fillRect(this._FBU.x, this._FBU.y, this._FBU.width, this._FBU.height, [rQ[rQi + 3], rQ[rQi + 2], rQ[rQi + 1]], false);
-                    this._sock.rQskipBytes(4);
+                    this._sock.rQskip8();  // shift off ctl
+                    var color = this._sock.rQshiftBytes(this._fb_depth);
+                    this._display.renderQ_push({
+                        'type': 'fill',
+                        'x': this._FBU.x,
+                        'y': this._FBU.y,
+                        'width': this._FBU.width,
+                        'height': this._FBU.height,
+                        'color': [color[2], color[1], color[0]]
+                    });
                     break;
                 case "png":
                 case "jpeg":
-                    // begin inline getTightCLength (returning two-item arrays is for peformance with GC)
-                    var cl_offset = rQi + 1;
-                    cl_header = 1;
-                    cl_data = 0;
-                    cl_data += rQ[cl_offset] & 0x7f;
-                    if (rQ[cl_offset] & 0x80) {
-                        cl_header++;
-                        cl_data += (rQ[cl_offset + 1] & 0x7f) << 7;
-                        if (rQ[cl_offset + 1] & 0x80) {
-                            cl_header++;
-                            cl_data += rQ[cl_offset + 2] << 14;
-                        }
-                    }
-                    // end inline getTightCLength
-                    this._FBU.bytes = 1 + cl_header + cl_data;  // ctl + clength size + jpeg-data
+                    clength = RFB.encodingHandlers.getTightCLength(this._sock.rQslice(1, 4));
+                    this._FBU.bytes = 1 + clength[0] + clength[1];  // ctl + clength size + jpeg-data
                     if (this._sock.rQwait("TIGHT " + cmode, this._FBU.bytes)) { return false; }
 
                     // We have everything, render it
-                    this._sock.rQskipBytes(1 + cl_header);  // shift off clt + compact length
+                    this._sock.rQskipBytes(1 + clength[0]);  // shift off clt + compact length
                     var img = new Image();
                     img.src = "data: image/" + cmode +
-                        RFB.extract_data_uri(this._sock.rQshiftBytes(cl_data));
+                        RFB.extract_data_uri(this._sock.rQshiftBytes(clength[1]));
                     this._display.renderQ_push({
                         'type': 'img',
                         'img': img,
@@ -5627,7 +5862,8 @@ var RFB;
                     } else {
                         // Filter 0, Copy could be valid here, but servers don't send it as an explicit filter
                         // Filter 2, Gradient is valid but not use if jpeg is enabled
-                        this._fail("Unsupported tight subencoding received, filter: " + filterId);
+                        // TODO(directxman12): why aren't we just calling '_fail' here
+                        throw new Error("Unsupported tight subencoding received, filter: " + filterId);
                     }
                     break;
                 case "copy":
@@ -5650,82 +5886,18 @@ var RFB;
             return true;
         },
 
-        handle_FB_resize: function () {
+        DesktopSize: function () {
+            Util.Debug(">> set_desktopsize");
             this._fb_width = this._FBU.width;
             this._fb_height = this._FBU.height;
-            this._destBuff = new Uint8Array(this._fb_width * this._fb_height * 4);
-            this._display.resize(this._fb_width, this._fb_height);
             this._onFBResize(this, this._fb_width, this._fb_height);
+            this._display.resize(this._fb_width, this._fb_height);
             this._timing.fbu_rt_start = (new Date()).getTime();
 
             this._FBU.bytes = 0;
-            this._FBU.rects -= 1;
-            return true;
-        },
+            this._FBU.rects--;
 
-        ExtendedDesktopSize: function () {
-            this._FBU.bytes = 1;
-            if (this._sock.rQwait("ExtendedDesktopSize", this._FBU.bytes)) { return false; }
-
-            this._supportsSetDesktopSize = true;
-            var number_of_screens = this._sock.rQpeek8();
-
-            this._FBU.bytes = 4 + (number_of_screens * 16);
-            if (this._sock.rQwait("ExtendedDesktopSize", this._FBU.bytes)) { return false; }
-
-            this._sock.rQskipBytes(1);  // number-of-screens
-            this._sock.rQskipBytes(3);  // padding
-
-            for (var i = 0; i < number_of_screens; i += 1) {
-                // Save the id and flags of the first screen
-                if (i === 0) {
-                    this._screen_id = this._sock.rQshiftBytes(4);    // id
-                    this._sock.rQskipBytes(2);                       // x-position
-                    this._sock.rQskipBytes(2);                       // y-position
-                    this._sock.rQskipBytes(2);                       // width
-                    this._sock.rQskipBytes(2);                       // height
-                    this._screen_flags = this._sock.rQshiftBytes(4); // flags
-                } else {
-                    this._sock.rQskipBytes(16);
-                }
-            }
-
-            /*
-             * The x-position indicates the reason for the change:
-             *
-             *  0 - server resized on its own
-             *  1 - this client requested the resize
-             *  2 - another client requested the resize
-             */
-
-            // We need to handle errors when we requested the resize.
-            if (this._FBU.x === 1 && this._FBU.y !== 0) {
-                var msg = "";
-                // The y-position indicates the status code from the server
-                switch (this._FBU.y) {
-                case 1:
-                    msg = "Resize is administratively prohibited";
-                    break;
-                case 2:
-                    msg = "Out of resources";
-                    break;
-                case 3:
-                    msg = "Invalid screen layout";
-                    break;
-                default:
-                    msg = "Unknown reason";
-                    break;
-                }
-                Util.Info("Server did not accept the resize request: " + msg);
-                return true;
-            }
-
-            this._encHandlers.handle_FB_resize();
-            return true;
-        },
-
-        DesktopSize: function () {
-            this._encHandlers.handle_FB_resize();
+            Util.Debug("<< set_desktopsize");
             return true;
         },
 
@@ -5823,7 +5995,7 @@ XK_KP_Up =                       0xff97,
 XK_KP_Right =                    0xff98,
 XK_KP_Down =                     0xff99,
 XK_KP_Prior =                    0xff9a,
-XK_KP_Page_Up =                  0xff9a,
+XK_KP_Page_Up =                  0xff9a
 XK_KP_Next =                     0xff9b,
 XK_KP_Page_Down =                0xff9b,
 XK_KP_End =                      0xff9c,
