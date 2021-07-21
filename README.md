@@ -1,3 +1,6 @@
+# Archiving this repo on 21/07/2021
+
+
 #jquery noVnc
 
 Wraps the noVNC client in a jQuery plugin.
